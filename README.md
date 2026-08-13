@@ -11,9 +11,9 @@ It can be anything : Robotics, programs, mobile apps, desktop apps, web apps, vi
 
 ## Capabilities
 
-Languages I can use completely offline : C and JavaScript
-Languages I can use while looking the doc from time to time : Python, Go, PHP, Bash
-Languages I would love to learn and master : Java, Go
+- Languages I can use completely offline : C and JavaScript
+- Languages I can use while looking the doc from time to time : Python, Go, PHP, Bash
+- Languages I would love to learn and master : Java, Go
 
 I have a good low-level understanding of telecommunications and networking, thanks to [Saint-Vincent-de-Paul](https://www.saint-vincent74.fr/lycee-professionnel/bac-pro-sn-risc).
 
