@@ -1,0 +1,17 @@
+---
+
+const { name, href, description, logo } = Astro.props;
+
+---
+
+<a class="side-project" href={href}>
+    <img src={logo} />
+    <div>
+        <h1>{name}</h1>
+        <p>{description}</p>
+    </div>
+</a>
+
+<style>
+    
+</style>

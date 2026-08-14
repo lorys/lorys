@@ -1,0 +1,27 @@
+---
+import github from '../assets/github-white-icon.png';
+import linkedin from '../assets/linkedin_logo.png';
+import { Image } from 'astro:assets';
+---
+
+<div class="socialNetworks">
+    <a href="https://github.com/lorys" target="_blank"><Image src={github} alt="My Github" /></a>
+    <a href="https://linkedin.com/in/lorys" target="_blank"><Image src={linkedin} alt="My Linkedin" /></a>
+</div>
+
+<style>
+    .socialNetworks {
+        display: flex; 
+        flex-direction: row;
+        justify-content: space-evenly;
+    }
+
+    .socialNetworks a img {
+        width: 30px;
+        height: 30px;
+    }
+
+    .socialNetworks a {
+        margin: 10px;
+    }
+</style>

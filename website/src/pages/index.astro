@@ -1,0 +1,48 @@
+---
+import Layout from '../layouts/Layout.astro';
+import SocialNetworks from '../components/SocialNetworks.astro';
+import SideProjects from '../components/SideProjects.astro';
+import LatestPosts from '../components/LatestPosts.astro';
+---
+
+<Layout>
+
+	<div class="home">
+		<div>
+			<h4 class="title">Lorys</h4>
+			<h4 class="subtitle">Développeur Fullstack</h4>
+		</div>
+		<div>
+			<SocialNetworks />
+		</div>
+	</div>
+
+	<div class="split">
+		<SideProjects />
+		<LatestPosts />
+	</div>
+
+</Layout>
+
+<style>
+	.home {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.home div:first-child {
+		flex: 1;
+	}
+
+	.home .title h4 {
+		margin-bottom: 0px;
+		padding: 0px;
+	}
+	.home .subtitle h4 {
+		margin-top: 0px;
+		padding: 0px;
+		color: rgb(94, 94, 94);
+	}
+	.
+</style>
