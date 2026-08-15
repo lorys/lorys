@@ -1,0 +1,74 @@
+---
+import { render } from 'astro:content';
+import Layout from '../layouts/Layout.astro';
+
+const { article } = Astro.props;
+const { Content } = await render(article);
+
+// The collection id is `<locale>/<slug>`, so the URL locale drives everything below.
+export type AvailableLocales = undefined | "fr" | "en";
+
+const locale: AvailableLocales = article.id.split('/')[0];
+
+const HOME = { fr: '/', en: '/en/', es: '/es/' };
+const DATE_LOCALE = { fr: 'fr-FR', en: 'en-US', es: 'es-ES' };
+const BACK_LABEL = { fr: '← Retour', en: '← Back', es: '← Volver' };
+
+const backHref = HOME[locale || 'en'] ?? '/';
+const formattedDate = article.data.pubDate.toLocaleDateString(DATE_LOCALE[locale || 'en'] ?? 'fr-FR', {
+	year: 'numeric',
+	month: 'long',
+	day: 'numeric',
+});
+---
+
+<Layout lang={locale}>
+	<article class="post">
+		<a class="back" href={backHref}>{BACK_LABEL[locale || 'en']}</a>
+		<h1>{article.data.title}</h1>
+		<time datetime={article.data.pubDate.toISOString()}>{formattedDate}</time>
+		<div class="body">
+			<Content />
+		</div>
+	</article>
+</Layout>
+
+<style>
+	.post .back {
+		display: inline-block;
+		margin-top: 20px;
+		margin-bottom: 20px;
+		color: rgb(160, 160, 160);
+	}
+
+	.post time {
+		display: block;
+		color: rgb(94, 94, 94);
+		margin-bottom: 30px;
+	}
+
+	.post h1 {
+		font-size: clamp(28px, 7vw, 44px);
+	}
+
+	.post .body {
+		line-height: 1.6;
+	}
+
+	.post .body :global(img) {
+		max-width: 100%;
+		height: auto;
+	}
+
+	.post .body :global(pre) {
+		overflow-x: auto;
+		padding: 12px;
+		border-radius: 6px;
+	}
+
+	.post .body :global(table) {
+		display: block;
+		max-width: 100%;
+		overflow-x: auto;
+	}
+</style>

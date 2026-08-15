@@ -10,14 +10,14 @@ import Layout from "../layouts/Layout.astro";
 
 <style>
     h1 {
-        font-size: 50px;
+        font-size: clamp(28px, 8vw, 50px);
         text-align: center;
     }
 
     img {
-        width: 20vw;
+        width: min(300px, 60vw);
         display: block;
-        margin: auto;
+        margin: 40px auto;
     }
 
     a {

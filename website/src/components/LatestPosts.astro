@@ -1,0 +1,31 @@
+---
+import { getCollection } from 'astro:content';
+import PostTile from './PostTile.astro';
+import type { AvailableLocales } from './Article.astro';
+
+const { locale = 'fr' }: { locale?: AvailableLocales } = Astro.props;
+const prefix = locale === 'fr' ? '' : `/${locale}`;
+
+const TITLE = { fr: 'Articles', en: 'Articles', es: 'Artículos' };
+
+const posts = (await getCollection('articles', ({ id }) => id.startsWith(`${locale}/`))).sort(
+	(a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime()
+);
+---
+
+<section class="list">
+	<h3 class="list-title">{TITLE[locale] ?? 'Articles'}</h3>
+	<div class="scroll">
+		{posts.map((post) => {
+			const slug = post.id.split('/').slice(1).join('/');
+			return (
+				<PostTile
+					title={post.data.title}
+					description={post.data.description}
+					href={`${prefix}/articles/${slug}/`}
+					date={post.data.pubDate}
+				/>
+			);
+		})}
+	</div>
+</section>

@@ -1,5 +1,8 @@
+---
+const { lang = 'fr' } = Astro.props;
+---
 <!doctype html>
-<html lang="en">
+<html lang={lang}>
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width" />
@@ -30,11 +33,19 @@
 		background-color: rgb(32, 32, 32);
 		color: rgb(252, 247, 238);
 		font-family: "Roboto Mono";
+		overflow-wrap: break-word;
+	}
+
+	:global(img) {
+		max-width: 100%;
+		height: auto;
 	}
 
 	.container {
-		width: 40vw;
+		width: min(900px, 90vw);
 		margin: auto;
+		padding: 24px 16px;
+		box-sizing: border-box;
 	}
 
 	.home .title {

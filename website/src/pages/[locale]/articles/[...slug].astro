@@ -1,0 +1,20 @@
+---
+import { getCollection } from 'astro:content';
+import Article from '../../../components/Article.astro';
+
+// Non-default locales are URL-prefixed: /en/articles/<slug>/, /es/articles/<slug>/
+export async function getStaticPaths() {
+	const articles = await getCollection('articles', ({ id }) => !id.startsWith('fr/'));
+	return articles.map((article) => {
+		const [locale, ...rest] = article.id.split('/');
+		return {
+			params: { locale, slug: rest.join('/') },
+			props: { article },
+		};
+	});
+}
+
+const { article } = Astro.props;
+---
+
+<Article article={article} />

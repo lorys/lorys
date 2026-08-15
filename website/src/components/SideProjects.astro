@@ -1,0 +1,19 @@
+---
+import projects from '../sideprojects.json';
+import SideProject from './SideProject.astro';
+
+const sorted = [...projects].sort((a, b) => b.createdAt - a.createdAt);
+---
+
+<section class="list">
+	<h3 class="list-title">Side Projects</h3>
+	<div class="scroll">
+		{sorted.map((project) => (
+			<SideProject
+				title={project.title}
+				description={project.description}
+				url={project.url}
+			/>
+		))}
+	</div>
+</section>

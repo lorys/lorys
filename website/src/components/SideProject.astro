@@ -1,17 +1,42 @@
 ---
+const { title, description, url } = Astro.props;
 
-const { name, href, description, logo } = Astro.props;
-
+const desc =
+	typeof description === 'string'
+		? description
+		: description?.fr ?? description?.en ?? Object.values(description ?? {})[0] ?? '';
 ---
 
-<a class="side-project" href={href}>
-    <img src={logo} />
-    <div>
-        <h1>{name}</h1>
-        <p>{description}</p>
-    </div>
+<a class="tile" href={url} target="_blank" rel="noopener noreferrer">
+	<h1>{title}</h1>
+	{desc && <p>{desc}</p>}
 </a>
 
 <style>
-    
+	.tile {
+		display: block;
+		padding: 16px;
+		margin-bottom: 12px;
+		border: 1px solid rgb(60, 60, 60);
+		border-radius: 8px;
+		text-decoration: none;
+		color: inherit;
+		transition: border-color 0.15s ease, background-color 0.15s ease;
+	}
+
+	.tile:hover {
+		border-color: rgb(120, 120, 120);
+		background-color: rgb(40, 40, 40);
+	}
+
+	.tile h1 {
+		font-size: 18px;
+		margin: 0 0 6px;
+	}
+
+	.tile p {
+		margin: 0;
+		font-size: 14px;
+		color: rgb(180, 180, 180);
+	}
 </style>

@@ -1,17 +1,49 @@
 ---
+const { title, description, href, date } = Astro.props;
 
-const { name, href, description, logo } = Astro.props;
-
+const formatted = date
+	? new Date(date).toLocaleDateString('fr-FR', { year: 'numeric', month: 'short', day: 'numeric' })
+	: null;
 ---
 
-<a class="side-project" href={href}>
-    <img src={logo} />
-    <div>
-        <h1>{name}</h1>
-        <p>{description}</p>
-    </div>
+<a class="tile" href={href}>
+	<h1>{title}</h1>
+	{formatted && <time datetime={new Date(date).toISOString()}>{formatted}</time>}
+	{description && <p>{description}</p>}
 </a>
 
 <style>
-    
+	.tile {
+		display: block;
+		padding: 16px;
+		margin-bottom: 12px;
+		border: 1px solid rgb(60, 60, 60);
+		border-radius: 8px;
+		text-decoration: none;
+		color: inherit;
+		transition: border-color 0.15s ease, background-color 0.15s ease;
+	}
+
+	.tile:hover {
+		border-color: rgb(120, 120, 120);
+		background-color: rgb(40, 40, 40);
+	}
+
+	.tile h1 {
+		font-size: 18px;
+		margin: 0 0 4px;
+	}
+
+	.tile time {
+		display: block;
+		font-size: 12px;
+		color: rgb(94, 94, 94);
+		margin-bottom: 6px;
+	}
+
+	.tile p {
+		margin: 0;
+		font-size: 14px;
+		color: rgb(180, 180, 180);
+	}
 </style>
