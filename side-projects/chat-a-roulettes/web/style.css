@@ -74,6 +74,60 @@ body {
     box-shadow: 5px 6px 0 2px rgba(67, 120, 121, 0.35);
 }
 
+.mobileBlock {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .mobileBlock {
+        display: flex;
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        gap: 18px;
+        padding: 32px;
+        background-color: var(--bg);
+        color: var(--ink);
+    }
+
+    .mobileBlock img {
+        width: 120px;
+        height: auto;
+        filter: drop-shadow(2px 3px 0 rgba(67, 120, 121, 0.25));
+    }
+
+    .mobileBlock h1 {
+        margin: 0;
+        font-size: 32px;
+    }
+
+    .mobileBlock p {
+        margin: 0;
+        max-width: 320px;
+        line-height: 1.4;
+    }
+
+    .mobileMsg {
+        font-size: 20px;
+        font-weight: bold;
+    }
+
+    .mobileCta {
+        margin-top: 8px;
+        text-decoration: none;
+        border-radius: 12px;
+        box-shadow: 3px 4px 0 2px var(--teal-shadow);
+        background-color: var(--teal);
+        color: var(--ink);
+        padding: 12px 22px;
+        font-weight: bold;
+    }
+}
+
 .remoteWrap {
     position: relative;
 }
