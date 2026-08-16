@@ -1,0 +1,185 @@
+<html>
+	<head>
+		<title>FlappyBird</title>
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<script>
+			var canvas;
+			var perso = new Object;
+			falling = 0;
+			pipe = new Array();
+
+			perso.img_id = "perso";
+			perso.x = window.innerWidth/2;
+			perso.y = window.innerHeight/3;
+			fps = 0;
+			framerate = 0;
+			frame = 0;
+			points = 0;
+			vitesse = 10;
+			var fraps;
+			function gameover() {
+				numbers = new Array;
+				for (a = 0; a < 10; a++)
+					numbers[a] = document.getElementById("num_"+a);
+				clearInterval(fraps);
+				canvas = document.getElementById("canvas").getContext("2d");
+				canvas.canvas.width=window.innerWidth;
+				canvas.canvas.height=window.innerHeight;
+				canvas.clearRect(0, 0, canvas.canvas.width, canvas.canvas.height);
+				gameover = document.getElementById("gameover");
+				canvas.moveTo(0,0);
+				canvas.drawImage(back, 0, 0, window.innerWidth/2, window.innerHeight);
+				canvas.drawImage(back, window.innerWidth/2, 0, window.innerWidth/2, window.innerHeight);
+				canvas.drawImage(gameover, window.innerWidth/2-96, 100);
+				canvas.drawImage(perso_img, perso.x, perso.y);
+				for (a = 0; (points+'').substr(a, a+1)[a]; a++)
+					canvas.drawImage(numbers[(points+"").substr(a, a+1)[a]], (window.innerWidth/2-((a+1)*24)), 50);
+				canvas.stroke();
+			}
+
+			function refresh_screen() {
+				frame++;
+				numbers = new Array;
+				for (a = 0; a < 10; a++)
+					numbers[a] = document.getElementById("num_"+a);
+				perso_img = document.getElementById(perso.img_id);
+				base = document.getElementById("base");
+				back = document.getElementById("background-day");
+				pipe_up = document.getElementById("pipe-up");
+				pipe_down = document.getElementById("pipe-down");
+				canvas = document.getElementById("canvas").getContext("2d");
+				canvas.canvas.width=window.innerWidth;
+				canvas.canvas.height=window.innerHeight;
+				canvas.clearRect(0, 0, canvas.canvas.width, canvas.canvas.height);
+				canvas.moveTo(0,0);
+				canvas.drawImage(back, 0, 0, window.innerWidth/2, window.innerHeight);
+				canvas.drawImage(back, window.innerWidth/2, 0, window.innerWidth/2, window.innerHeight);
+				points = 0;
+				for (a = 0; pipe[a]; a+=2) {
+					if (pipe[a] < window.innerWidth/2)
+						points++;
+					if (pipe[a] < 20)
+						continue;
+					if (perso.x+34 > pipe[a] && perso.x < pipe[a]+52 && pipe[a+1] > perso.y)
+						gameover();
+					if (perso.y+10 > pipe[a+1]+200 && perso.x > pipe[a] && perso.x < pipe[a]+52)
+						gameover();
+					canvas.drawImage(pipe_up, pipe[a], 0, 52, pipe[a+1]);
+					canvas.drawImage(pipe_down, pipe[a], pipe[a+1]+200, 52, window.innerHeight-200-pipe[a+1]+200);
+					pipe[a]--;
+				}
+					if (pipe[a-2]+200 < window.innerWidth)
+						addpipe();
+				for (a = 0; a*163 < window.innerHeight; a++)
+					canvas.drawImage(base, (336*a), (window.innerHeight-112));
+				canvas.fillText((perso.y)+" | "+(perso.x), 20, 20);
+				canvas.fillText("fps: "+fps, 20, 40);
+				canvas.fillText("score: "+points, 20, 60);
+				for (a = 0; (points+'').charAt(a); a++){
+					canvas.drawImage(numbers[(points+"").charAt(a)], (window.innerWidth/2+((a+1)*24)), 50);
+				}
+				canvas.drawImage(perso_img, perso.x, perso.y);
+				canvas.stroke();
+				collisions();
+				framerate++;
+			}
+
+			function load_screen() {
+				back = document.getElementById("background-day");
+				canvas = document.getElementById("canvas").getContext("2d");
+				firstscreen = document.getElementById("message");
+				canvas.canvas.width=window.innerWidth;
+				canvas.canvas.height=window.innerHeight;
+				canvas.moveTo(0,0);
+				canvas.drawImage(back, 0, 0, window.innerWidth/2, window.innerHeight);
+				canvas.drawImage(back, window.innerWidth/2, 0, window.innerWidth/2, window.innerHeight);
+				canvas.drawImage(firstscreen, ((window.innerWidth/2)-(267*window.innerWidth/window.innerHeight/2)), 0, (267*window.innerWidth/window.innerHeight), window.innerHeight);
+				canvas.stroke();
+				document.body.setAttribute("onKeyDown", "start();");
+				document.body.setAttribute("onClick", "start();");
+			}
+
+			function start() {
+				setInterval("fps = framerate; framerate = 0;", 1000);
+				fraps = setInterval("refresh_screen();", 15);
+				fall();
+				addpipe();
+				document.body.setAttribute("onKeyDown", "play(event.code);");
+				document.body.setAttribute("onClick", "play('ArrowUp');");
+			}
+
+			function addpipe() {
+				pipe.push(window.innerWidth);
+				pipe.push(Math.round(Math.random() * window.innerHeight)/2);
+			}
+
+			function collisions() {
+				if (perso.y > (window.innerHeight-112))
+					gameover();
+			}
+
+			function fall() {
+				if (falling == 0)
+					return;
+				perso.img_id = "perso-down";
+				vitesse += 0.1;
+				perso.y += vitesse;
+				setTimeout("fall();", 20);
+			}
+
+			function jump(base) {
+				falling = 0;
+				perso.img_id = "perso-up";
+				vitesse /= 1.001;
+				perso.y -= vitesse;
+				if (perso.y < base-80 || perso.y < 0)
+				{
+					vitesse = 7;
+					falling = 1;
+					fall();
+					return;
+				}
+				setTimeout("jump("+base+");", 20);
+			}
+
+			function play(code) {
+				if (code == "ArrowUp")
+					jump(perso.y);
+			}
+
+		</script>
+		<style>
+			body {
+				margin: 0;
+				padding: 0;
+			}
+			.hide {
+				display: none;
+			}
+		</style>
+	</head>
+	<body onLoad="load_screen();" onClick="play('ArrowUp');" onKeyDown="play(event.code);">
+		<img src="assets/sprites/bluebird-midflap.png" id="perso" class="hide"/>
+		<img src="assets/sprites/bluebird-midflap.png" id="perso-mid" class="hide"/>
+		<img src="assets/sprites/bluebird-downflap.png" id="perso-down" class="hide"/>
+		<img src="assets/sprites/bluebird-upflap.png" id="perso-up" class="hide"/>
+		<img src="assets/sprites/gameover.png" id="gameover" class="hide"/>
+		<img src="assets/sprites/base.png" id="base" class="hide"/>
+		<img src="assets/sprites/base.png" id="base" class="hide"/>
+		<img src="assets/sprites/pipe-green.png" id="pipe-up" class="hide"/>
+		<img src="assets/sprites/pipe-green-down.png" id="pipe-down" class="hide"/>
+		<img src="assets/sprites/background-day.png" id="background-day" class="hide"/>
+		<img src="assets/sprites/message.png" id="message" class="hide"/> 
+		<img src="assets/sprites/0.png" id="num_0" class="hide"/>  
+		<img src="assets/sprites/1.png" id="num_1" class="hide"/> 
+		<img src="assets/sprites/2.png" id="num_2" class="hide"/> 
+		<img src="assets/sprites/3.png" id="num_3" class="hide"/> 
+		<img src="assets/sprites/4.png" id="num_4" class="hide"/> 
+		<img src="assets/sprites/5.png" id="num_5" class="hide"/> 
+		<img src="assets/sprites/6.png" id="num_6" class="hide"/> 
+		<img src="assets/sprites/7.png" id="num_7" class="hide"/> 
+		<img src="assets/sprites/8.png" id="num_8" class="hide"/> 
+		<img src="assets/sprites/9.png" id="num_9" class="hide"/>         
+		<canvas id="canvas"></canvas>
+	<div style='text-align: right;position: fixed;z-index:9999999;bottom: 0; width: 100%;cursor: pointer;line-height: 0;display:block !important;'><a title="Hosted on free web hosting 000webhost.com. Host your own website for FREE." target="_blank" href="https://www.000webhost.com/?utm_source=000webhostapp&amp;utm_campaign=000_logo&amp;utm_medium=website&amp;utm_content=footer_img"><img src="https://cdn.000webhost.com/000webhost/logo/footer-powered-by-000webhost-white2.png"  alt="www.000webhost.com"></a></div></body>
+</html>
