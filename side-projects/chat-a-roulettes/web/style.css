@@ -1,0 +1,101 @@
+:root {
+    --teal: rgb(124, 220, 222);
+    --teal-shadow: rgb(67, 120, 121);
+    --ink: #2b3a3a;
+    --bg: #eef7f7;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: "Nunito";
+    margin: 0;
+    min-height: 100vh;
+    background-color: var(--bg);
+    color: var(--ink);
+    display: flex;
+    flex-direction: column;
+}
+
+.modal {
+    position: absolute;
+    top: 0px;
+    left: 0px;
+    width: 100vw;
+    height: 100vh;
+    background-color: var(--bg);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 999;
+}
+
+.clientCount {
+    text-align: center;
+    margin: 0px;
+    padding: 0px;
+}
+
+.banner {
+    height: 12vh;
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    font-size: 40px;
+    font-weight: bold;
+}
+
+.banner img {
+    height: 9vh;
+    filter: drop-shadow(2px 3px 0 rgba(67, 120, 121, 0.25));
+}
+
+.streams {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    gap: 4vw;
+    padding: 0 4vw;
+}
+
+.streams video {
+    width: 40vw;
+    height: 40vw;
+    max-width: 520px;
+    max-height: 520px;
+    border-radius: 20px;
+    background-color: rgba(0, 0, 0, 0.3);
+    object-fit: cover;
+    box-shadow: 5px 6px 0 2px rgba(67, 120, 121, 0.35);
+}
+
+button.next {
+    margin: 5vh auto 4vh;
+    display: block;
+    border-radius: 12px;
+    box-shadow: 3px 4px 0 2px var(--teal-shadow);
+    cursor: pointer;
+    border: none;
+    background-color: var(--teal);
+    color: var(--ink);
+    padding: 12px 28px;
+    font-family: "Nunito";
+    font-size: 25px;
+    font-weight: bold;
+    transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+button.next:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 4px 5px 0 2px var(--teal-shadow);
+}
+
+button.next:active {
+    transform: translate(3px, 4px);
+    box-shadow: 0 0 0 2px var(--teal-shadow);
+}

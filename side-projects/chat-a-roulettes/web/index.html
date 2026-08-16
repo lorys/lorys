@@ -1,0 +1,88 @@
+<html>
+    <head>
+        <title>Chat à roulettes</title>
+        <link href="style.css" media="screen" rel="stylesheet" />
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,200..1000;1,200..1000&display=swap" rel="stylesheet">
+    </head>
+    <body>
+        <div class="modal">
+            <div class="banner">Chat <img src="/logo.png" /> à roulettes</div>
+            <p>Parlez avec des gens en live, d'où vous voulez !</p>
+            <button onClick="connect(true);" class="next">Let's go !</button>
+        </div>
+        <div class="banner">Chat <img src="/logo.png" /> à roulettes</div>
+        <h4 class="clientCount"><span id="clientCount"></span> personnes connectés</h4>
+        <div class="streams">
+            <video id="local" autoplay muted></video>
+            <video id="remote" autoplay></video>
+        </div>
+        <button onClick="connect();" class="next">NEEXT</button>
+        <script>
+            const ws = new WebSocket('ws://'+window.location.host+'/ws');
+            let pc = null;
+            var audio = new Audio('/notif.mp3');
+
+            let role = '';
+            async function connect(closeModal) {
+
+                if (closeModal) {
+                    document.querySelector(".modal").style.display="none";
+                }
+
+                if (pc) {
+                    pc.close();
+                }
+
+                pc = new RTCPeerConnection({
+                  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                });
+
+                const localStream = await navigator.mediaDevices.getUserMedia({
+                  video: true, audio: true
+                });
+                localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+                document.getElementById('local').srcObject = localStream;
+
+                pc.ontrack = (e) => {
+                    const remoteStream = new MediaStream();
+                    remoteStream.addTrack(e.track);
+                    document.getElementById('remote').srcObject = remoteStream;
+                    audio.play();
+                };
+
+                pc.onicecandidate = (e) => {
+                  if (e.candidate) ws.send(JSON.stringify({ candidate: e.candidate }));
+                };
+
+                ws.send(JSON.stringify({ ready: true }));
+
+                ws.onmessage = async (msg) => {
+                  const data = JSON.parse(typeof msg.data === 'string' ? msg.data : msg.data.toString());
+                
+                  if (data.role) role = data.role;
+                  if (data.role === "caller") {
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    ws.send(JSON.stringify({ offer }));
+                  } else if (data.offer) {
+                    await pc.setRemoteDescription(data.offer);
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    ws.send(JSON.stringify({ answer }));
+                  } else if (data.answer) {
+                    await pc.setRemoteDescription(data.answer);
+                  } else if (data.candidate) {
+                    await pc.addIceCandidate(data.candidate);
+                  }
+
+                  if (data.clientCount) {
+                    document.querySelector("#clientCount").innerHTML = data.clientCount;
+                  }
+
+                };
+            }
+        </script>
+    </body>
+</html>

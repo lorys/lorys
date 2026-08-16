@@ -1,6 +1,15 @@
 [
     {
         "createdAt": 1786743952704,
+        "title": "Chat à roulettes",
+        "description": {
+            "fr": "🐈 Parlez en visio à des inconnus (peut être pas une si bonne idée) avec WebRTC",
+            "en": "🐈 Talk to strangers (might not be a good idea) with WebRTC"
+        },
+        "url": "https://chat-a-roulettes.lorys.site"
+    },
+    {
+        "createdAt": 1786743952704,
         "title": "Hive-cloud",
         "description": {
             "fr": "Stockage Cloud contenu dans votre RAM.",
