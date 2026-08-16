@@ -22,6 +22,7 @@
         <script>
             const ws = new WebSocket('wss://'+window.location.host+'/ws');
             let pc = null;
+            let pendingCandidates = [];
             var audio = new Audio('/notif.mp3');
 
             let role = '';
@@ -41,6 +42,7 @@
                     pc = null;
                 }
 
+                pendingCandidates = [];
                 const remoteStream = new MediaStream();
                 pc = new RTCPeerConnection({
                   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
@@ -67,6 +69,7 @@
                 ws.onmessage = async (msg) => {
                   const data = JSON.parse(typeof msg.data === 'string' ? msg.data : msg.data.toString());
                 
+                  if (data.bye) { connect(); return; }
                   if (data.role) role = data.role;
                   if (data.role === "caller") {
                     const offer = await pc.createOffer();
@@ -74,13 +77,16 @@
                     ws.send(JSON.stringify({ offer }));
                   } else if (data.offer) {
                     await pc.setRemoteDescription(data.offer);
+                    for (const c of pendingCandidates.splice(0)) await pc.addIceCandidate(c);
                     const answer = await pc.createAnswer();
                     await pc.setLocalDescription(answer);
                     ws.send(JSON.stringify({ answer }));
                   } else if (data.answer) {
                     await pc.setRemoteDescription(data.answer);
+                    for (const c of pendingCandidates.splice(0)) await pc.addIceCandidate(c);
                   } else if (data.candidate) {
-                    await pc.addIceCandidate(data.candidate);
+                    if (pc.remoteDescription) await pc.addIceCandidate(data.candidate);
+                    else pendingCandidates.push(data.candidate);
                   }
 
                   if (data.clientCount) {

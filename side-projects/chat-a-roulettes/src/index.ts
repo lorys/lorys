@@ -27,7 +27,12 @@ fastify.register(async function (fastify) {
     socket.on('message', data => {
       const payload = JSON.parse(data.toString());
       if (payload.ready === true) {
-          const pairsAvailable = connectedClients.filter(e => !e.pairedTo && e.socket !== socket);
+          // leave the current partner (if any) so both become matchable again
+          const old = connectedClients.find(e => e.socket === currentClient.pairedTo);
+          if (old) { old.pairedTo = undefined; old.socket.send(JSON.stringify({ bye: true })); }
+          currentClient.pairedTo = undefined;
+
+          const pairsAvailable = connectedClients.filter(e => !e.pairedTo && e.socket !== socket && e !== old);
           const pair = pairsAvailable[Math.round(Math.random() * (pairsAvailable.length - 1))];
           
           if (pair) {
