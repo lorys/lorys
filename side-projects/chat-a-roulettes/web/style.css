@@ -74,6 +74,31 @@ body {
     box-shadow: 5px 6px 0 2px rgba(67, 120, 121, 0.35);
 }
 
+.remoteWrap {
+    position: relative;
+}
+
+.remoteWrap video {
+    display: block;
+}
+
+.loading {
+    position: absolute;
+    inset: 0;
+    border-radius: 20px;
+    background-color: var(--teal);
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px;
+    font-size: 22px;
+    font-weight: bold;
+    line-height: 1.4;
+    box-shadow: 5px 6px 0 2px rgba(67, 120, 121, 0.35);
+}
+
 button.next {
     margin: 5vh auto 4vh;
     display: block;
