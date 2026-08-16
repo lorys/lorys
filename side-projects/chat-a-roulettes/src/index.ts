@@ -27,7 +27,9 @@ fastify.register(async function (fastify) {
     socket.on('message', data => {
       const payload = JSON.parse(data.toString());
       if (payload.ready === true) {
-          const pair = connectedClients.find(e => !e.pairedTo && e.socket !== socket);
+          const pairsAvailable = connectedClients.filter(e => !e.pairedTo && e.socket !== socket);
+          const pair = pairsAvailable[Math.round(Math.random() * (pairsAvailable.length - 1))];
+          
           if (pair) {
             pair.pairedTo = socket;
             currentClient.pairedTo = pair.socket;

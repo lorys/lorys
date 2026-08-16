@@ -20,7 +20,7 @@
         </div>
         <button onClick="connect();" class="next">NEEXT</button>
         <script>
-            let ws = null;
+            const ws = new WebSocket('wss://'+window.location.host+'/ws');
             let pc = null;
             var audio = new Audio('/notif.mp3');
 
@@ -28,7 +28,6 @@
             let statInter = null;
 
             async function connect(closeModal) {
-
                 if (closeModal) {
                     document.querySelector(".modal").style.display="none";
                 }
@@ -41,13 +40,6 @@
                     pc.close();
                     pc = null;
                 }
-
-                if (ws) {
-                    ws.close();
-                    ws = null;
-                }
-
-                ws = new WebSocket('wss://'+window.location.host+'/ws');
 
                 const remoteStream = new MediaStream();
                 pc = new RTCPeerConnection({
