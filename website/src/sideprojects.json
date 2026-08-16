@@ -3,8 +3,18 @@
         "createdAt": 1786743952704,
         "title": "Hive-cloud",
         "description": {
+            "fr": "Stockage Cloud contenu dans votre RAM.",
             "en": "A cloud storage living in everyone's RAM."
         },
         "url": "https://hive-cloud.lorys.site"
+    },
+    {
+        "createdAt": 1451606400000,
+        "title": "Flappy Bird",
+        "description": {
+            "fr": "Le bon vieux flappy bird que j'ai fait en 4 heures en 2016",
+            "en": "The good'ol flappy bird game, made in 4 hours back in 2016"
+        },
+        "url": "https://flappybird.lorys.site"
     }
 ]
