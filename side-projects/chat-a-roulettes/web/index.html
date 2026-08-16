@@ -25,16 +25,25 @@
             var audio = new Audio('/notif.mp3');
 
             let role = '';
+            let statInter = null;
+
             async function connect(closeModal) {
+
 
                 if (closeModal) {
                     document.querySelector(".modal").style.display="none";
                 }
 
-                if (pc) {
-                    pc.close();
+                if (statInter) {
+                    clearInterval(statInter);
                 }
 
+                if (pc) {
+                    pc.close();
+                    pc = null;
+                }
+
+                const remoteStream = new MediaStream();
                 pc = new RTCPeerConnection({
                   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
                 });
@@ -46,7 +55,6 @@
                 document.getElementById('local').srcObject = localStream;
 
                 pc.ontrack = (e) => {
-                    const remoteStream = new MediaStream();
                     remoteStream.addTrack(e.track);
                     document.getElementById('remote').srcObject = remoteStream;
                     audio.play();
