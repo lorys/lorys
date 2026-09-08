@@ -1,0 +1,93 @@
+<input type="file" id="input"/>
+<button id="start">go</button>
+<h1 id="status"></h1>
+<canvas id="test-canvas" style="border: thin solid red;"></canvas>
+<img id="final-img" style="width: 500px; height: auto;" />
+<script>
+
+    const removeWatermark = async (file) => {
+        console.log({ file });
+        const ogImageSrc = new Image();
+        ogImageSrc.src=URL.createObjectURL(file);
+        await new Promise((res) => {
+            ogImageSrc.onload = res;
+        });
+
+        // const ogImage = new OffscreenCanvas(ogImageSrc.width, ogImageSrc.height);
+        const ogImage = document.querySelector("#test-canvas");
+        ogImage.width = ogImageSrc.width;
+        ogImage.height = ogImageSrc.height;
+        const ctx = ogImage.getContext('2d');
+        
+        ctx.drawImage(ogImageSrc, 0, 0);
+        const imgData = ctx.getImageData(0, 0, ogImageSrc.width, ogImageSrc.height);
+
+        const newImg = new ImageData(ogImageSrc.width, ogImageSrc.height);
+        console.log("before", newImg.data);
+
+        const modifyPx = (x, y, {r, g, b, a}) => {
+            if (x >= 0 && y >= 0 && y <= ogImageSrc.height && x <= ogImageSrc.width) {
+                newImg.data[((x + (y * ogImageSrc.width)) * 4)] = r;
+                newImg.data[((x + (y * ogImageSrc.width)) * 4) + 1] = g;
+                newImg.data[((x + (y * ogImageSrc.width)) * 4) + 2] = b;
+                newImg.data[((x + (y * ogImageSrc.width)) * 4) + 3] = a;
+            }
+        };
+
+        const getPxColor = (x, y) => {
+            return {
+                r: imgData.data[((x + (y * ogImageSrc.width)) * 4)], 
+                g: imgData.data[((x + (y * ogImageSrc.width)) * 4) + 1],
+                b: imgData.data[((x + (y * ogImageSrc.width)) * 4) + 2],
+                a: imgData.data[((x + (y * ogImageSrc.width)) * 4) + 3],
+            };
+        };
+
+        for (let y = 0; y < ogImageSrc.height; y++) {
+            for (let x = 0; x < ogImageSrc.width; x++) {
+                const color = getPxColor(x, y);
+                color.r *= 0.4;
+                color.g *= 0.2;
+                color.b *= 0.4;
+                color.a *= 1;
+                modifyPx(x, y, color);
+                modifyPx(x + Math.round(Math.random() * 100), y, color);
+                modifyPx(x - Math.round(Math.random() * 100), y, color);
+                modifyPx(x, y + Math.round(Math.random() * 100), color);
+                modifyPx(x, y - Math.round(Math.random() * 100), color);
+            }
+        }
+            console.log("after", newImg.data);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = ogImageSrc.width * 0.9;
+        canvas.height = ogImageSrc.height * 0.9;
+        
+        const finalImgCtx = canvas.getContext('2d');
+        finalImgCtx.putImageData(newImg, 0, 0, 0, 0, ogImageSrc.width * 0.9, ogImageSrc.height * 0.9);
+        
+        document.querySelector("#final-img").src=canvas.toDataURL();
+
+        // browser.downloads.download({
+        //   url: ctx.toDataUrl(),
+        //   filename: `${file.filename}-done.png`,
+        //   conflictAction: "uniquify",
+        // });
+
+    };
+
+    document.querySelector("#start").onclick=() => {
+        // const file = new FileReader();
+        // file.readAsArrayBuffer(document.querySelector("#input").files[0]);
+        // file.onloadstart = () => {
+        //     document.querySelector("#status").innerHTML="Reading...";
+        // };
+        // file.onloadend = e => {
+        //     document.querySelector("#status").innerHTML="Processing...";
+        //     removeWatermark(e.target.result);
+        // };
+
+        removeWatermark(document.querySelector("#input").files[0]);
+    };
+
+</script>

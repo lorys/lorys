@@ -1,5 +1,14 @@
 [
     {
+        "createdAt": 1788869775700,
+        "title": "[WIP] Ai Image watermark deleter",
+        "description": {
+            "fr": "J’essaie de modifier une image générée par IA jusqu’à ce que le watermark disparaisse.",
+            "en": "Trying to modify Ai Generated images until it's no longer detected as Ai generated."
+        },
+        "url": "https://ai-image-watermark-remover.lorys.site"
+    },
+    {
         "createdAt": 1786911037023,
         "title": "Chat à roulettes",
         "description": {
