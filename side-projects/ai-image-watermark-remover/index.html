@@ -1,93 +1,198 @@
-<input type="file" id="input"/>
-<button id="start">go</button>
-<h1 id="status"></h1>
-<canvas id="test-canvas" style="border: thin solid red;"></canvas>
-<img id="final-img" style="width: 500px; height: auto;" />
-<script>
-
-    const removeWatermark = async (file) => {
-        console.log({ file });
-        const ogImageSrc = new Image();
-        ogImageSrc.src=URL.createObjectURL(file);
-        await new Promise((res) => {
-            ogImageSrc.onload = res;
-        });
-
-        // const ogImage = new OffscreenCanvas(ogImageSrc.width, ogImageSrc.height);
-        const ogImage = document.querySelector("#test-canvas");
-        ogImage.width = ogImageSrc.width;
-        ogImage.height = ogImageSrc.height;
-        const ctx = ogImage.getContext('2d');
-        
-        ctx.drawImage(ogImageSrc, 0, 0);
-        const imgData = ctx.getImageData(0, 0, ogImageSrc.width, ogImageSrc.height);
-
-        const newImg = new ImageData(ogImageSrc.width, ogImageSrc.height);
-        console.log("before", newImg.data);
-
-        const modifyPx = (x, y, {r, g, b, a}) => {
-            if (x >= 0 && y >= 0 && y <= ogImageSrc.height && x <= ogImageSrc.width) {
-                newImg.data[((x + (y * ogImageSrc.width)) * 4)] = r;
-                newImg.data[((x + (y * ogImageSrc.width)) * 4) + 1] = g;
-                newImg.data[((x + (y * ogImageSrc.width)) * 4) + 2] = b;
-                newImg.data[((x + (y * ogImageSrc.width)) * 4) + 3] = a;
+<html>
+    <head>
+        <title>AI - watermark remover</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap" rel="stylesheet">
+        <style>
+            body {
+                background-color: rgb(64, 64, 64);   
+                font-family: "Barlow", sans-serif;   
             }
-        };
 
-        const getPxColor = (x, y) => {
-            return {
-                r: imgData.data[((x + (y * ogImageSrc.width)) * 4)], 
-                g: imgData.data[((x + (y * ogImageSrc.width)) * 4) + 1],
-                b: imgData.data[((x + (y * ogImageSrc.width)) * 4) + 2],
-                a: imgData.data[((x + (y * ogImageSrc.width)) * 4) + 3],
+            @keyframes startsTitle {
+                0% {
+                    font-size: 0px;
+                }
+                100% {
+                    font-size: 50px;
+                }
+            }
+
+            .starting {
+                background-color: black;
+                position: fixed;
+                top: 0px;
+                left: 0px;
+                width: 100vw;
+                height: 100vh;
+                display: flex;
+                flex-direction: row;
+                justify-content: center;
+                align-items: center;
+                overflow: hidden;
+                font-weight: 400;
+                font-style: normal;
+            }
+
+            .delay-anim1 {
+                animation-delay: 0.1s;
+            }
+            .delay-anim2 {
+                animation-delay: 0.2s;
+            }
+            .delay-anim3 {
+                animation-delay: 0.3s;
+            }
+            .delay-anim4 {
+                animation-delay: 0.4s;
+            }
+
+            .starting div {
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+            }
+
+            button {
+                background-color: rgb(148, 31, 216);
+                font-weight: 900;
+                font-size: 25px;
+                padding: 10px;
+                border: none;
+                box-shadow: 2px 5px rgb(168, 98, 208), -2px 5px rgb(168, 98, 208), -2px 2px rgb(168, 98, 208), 2px 2px rgb(168, 98, 208);
+                cursor: pointer;
+                border-radius: 10px;
+                transition: 0.1s;
+                color: white;
+            }
+
+            button:hover {
+                transform: translateY(-2px);
+            }
+
+            button:active {
+                box-shadow: 0px 0px rgb(168, 98, 208), 0px 0px rgb(168, 98, 208), 0px 0px rgb(168, 98, 208), 0px 0px rgb(168, 98, 208);
+                transform: translateY(5px);
+            }
+
+            .starting div h1, .starting div h3 {
+                display: inline-block;
+                color: rgb(212, 212, 212);
+            }
+
+            .starting div p {
+                color: rgb(212, 212, 212);
+                margin-bottom: 5vh;
+            }
+
+            a {
+                color: white;
+                text-decoration:underline;
+                font-weight: 900;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="starting">
+            <div>
+                <h1>AI WaterMark Remover</h1>
+                <p>This is an ongoing project, not working yet. If you have any idea to help me, please open an issue on <a href="https://github.com/lorys/lorys" target="_blank">github</a>.</p>
+                <h3>It simply doesn't work yet.</h3>
+                <button>I understand, continue</button>
+            </div>
+        </div>
+        <input type="file" id="input"/>
+        <button id="start">go</button>
+        <h1 id="status"></h1>
+        <canvas id="test-canvas" style="border: thin solid red;"></canvas>
+        <img id="final-img" style="width: 500px; height: auto;" />
+        <script>
+        
+            const removeWatermark = async (file) => {
+                const ogImageSrc = new Image();
+                ogImageSrc.src=URL.createObjectURL(file);
+                await new Promise((res) => {
+                    ogImageSrc.onload = res;
+                });
+            
+                // const ogImage = new OffscreenCanvas(ogImageSrc.width, ogImageSrc.height);
+                const ogImage = document.querySelector("#test-canvas");
+                ogImage.width = ogImageSrc.width;
+                ogImage.height = ogImageSrc.height;
+                const ctx = ogImage.getContext('2d');
+
+                ctx.drawImage(ogImageSrc, 0, 0);
+                const imgData = ctx.getImageData(0, 0, ogImageSrc.width, ogImageSrc.height);
+            
+                const newImg = new ImageData(ogImageSrc.width, ogImageSrc.height);
+                console.log("before", newImg.data);
+            
+                const modifyPx = (x, y, {r, g, b, a}) => {
+                    if (x >= 0 && y >= 0 && y <= ogImageSrc.height && x <= ogImageSrc.width) {
+                        newImg.data[((x + (y * ogImageSrc.width)) * 4)] = r;
+                        newImg.data[((x + (y * ogImageSrc.width)) * 4) + 1] = g;
+                        newImg.data[((x + (y * ogImageSrc.width)) * 4) + 2] = b;
+                        newImg.data[((x + (y * ogImageSrc.width)) * 4) + 3] = a;
+                    }
+                };
+            
+                const getPxColor = (x, y) => {
+                    return {
+                        r: imgData.data[((x + (y * ogImageSrc.width)) * 4)], 
+                        g: imgData.data[((x + (y * ogImageSrc.width)) * 4) + 1],
+                        b: imgData.data[((x + (y * ogImageSrc.width)) * 4) + 2],
+                        a: imgData.data[((x + (y * ogImageSrc.width)) * 4) + 3],
+                    };
+                };
+            
+                for (let y = 0; y < ogImageSrc.height; y++) {
+                    for (let x = 0; x < ogImageSrc.width; x++) {
+                        const color = getPxColor(x, y);
+                        color.r *= 0.4;
+                        color.g *= 0.2;
+                        color.b *= 0.4;
+                        color.a *= 1;
+                        modifyPx(x, y, color);
+                        modifyPx(x + Math.round(Math.random() * 100), y, color);
+                        modifyPx(x - Math.round(Math.random() * 100), y, color);
+                        modifyPx(x, y + Math.round(Math.random() * 100), color);
+                        modifyPx(x, y - Math.round(Math.random() * 100), color);
+                    }
+                }
+                    console.log("after", newImg.data);
+            
+                const canvas = document.createElement('canvas');
+                canvas.width = ogImageSrc.width * 0.9;
+                canvas.height = ogImageSrc.height * 0.9;
+
+                const finalImgCtx = canvas.getContext('2d');
+                finalImgCtx.putImageData(newImg, 0, 0, 0, 0, ogImageSrc.width * 0.9, ogImageSrc.height * 0.9);
+
+                document.querySelector("#final-img").src=canvas.toDataURL();
+            
+                // browser.downloads.download({
+                //   url: ctx.toDataUrl(),
+                //   filename: `${file.filename}-done.png`,
+                //   conflictAction: "uniquify",
+                // });
+                
             };
-        };
-
-        for (let y = 0; y < ogImageSrc.height; y++) {
-            for (let x = 0; x < ogImageSrc.width; x++) {
-                const color = getPxColor(x, y);
-                color.r *= 0.4;
-                color.g *= 0.2;
-                color.b *= 0.4;
-                color.a *= 1;
-                modifyPx(x, y, color);
-                modifyPx(x + Math.round(Math.random() * 100), y, color);
-                modifyPx(x - Math.round(Math.random() * 100), y, color);
-                modifyPx(x, y + Math.round(Math.random() * 100), color);
-                modifyPx(x, y - Math.round(Math.random() * 100), color);
-            }
-        }
-            console.log("after", newImg.data);
-
-        const canvas = document.createElement('canvas');
-        canvas.width = ogImageSrc.width * 0.9;
-        canvas.height = ogImageSrc.height * 0.9;
         
-        const finalImgCtx = canvas.getContext('2d');
-        finalImgCtx.putImageData(newImg, 0, 0, 0, 0, ogImageSrc.width * 0.9, ogImageSrc.height * 0.9);
+            document.querySelector("#start").onclick=() => {
+                // const file = new FileReader();
+                // file.readAsArrayBuffer(document.querySelector("#input").files[0]);
+                // file.onloadstart = () => {
+                //     document.querySelector("#status").innerHTML="Reading...";
+                // };
+                // file.onloadend = e => {
+                //     document.querySelector("#status").innerHTML="Processing...";
+                //     removeWatermark(e.target.result);
+                // };
+                
+                removeWatermark(document.querySelector("#input").files[0]);
+            };
         
-        document.querySelector("#final-img").src=canvas.toDataURL();
-
-        // browser.downloads.download({
-        //   url: ctx.toDataUrl(),
-        //   filename: `${file.filename}-done.png`,
-        //   conflictAction: "uniquify",
-        // });
-
-    };
-
-    document.querySelector("#start").onclick=() => {
-        // const file = new FileReader();
-        // file.readAsArrayBuffer(document.querySelector("#input").files[0]);
-        // file.onloadstart = () => {
-        //     document.querySelector("#status").innerHTML="Reading...";
-        // };
-        // file.onloadend = e => {
-        //     document.querySelector("#status").innerHTML="Processing...";
-        //     removeWatermark(e.target.result);
-        // };
-
-        removeWatermark(document.querySelector("#input").files[0]);
-    };
-
-</script>
+        </script>
+    </body>
+</html>
