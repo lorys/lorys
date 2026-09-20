@@ -8,6 +8,7 @@ import LatestPosts from '../components/LatestPosts.astro';
 <Layout>
 
 	<div class="home">
+		<img class="pp" src="/ppgrey.gif" />
 		<div>
 			<h4 class="title">Lorys</h4>
 			<h4 class="subtitle">Développeur Fullstack</h4>
@@ -28,9 +29,11 @@ import LatestPosts from '../components/LatestPosts.astro';
 	.home {
 		display: flex;
 		flex-direction: row;
+		justify-content: space-evenly;
 		align-items: center;
 		flex-wrap: wrap;
 		gap: 16px;
+		width: 100%;
 	}
 
 	.home div:first-child {
@@ -72,6 +75,10 @@ import LatestPosts from '../components/LatestPosts.astro';
 		max-height: 60vh;
 		overflow-y: auto;
 		padding-right: 8px;
+	}
+
+	img.pp {
+		width: 200px;
 	}
 
 	@media (max-width: 700px) {

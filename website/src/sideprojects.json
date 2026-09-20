@@ -1,5 +1,14 @@
 [
     {
+        "createdAt": 1767826800000,
+        "title": "Easylearn",
+        "description": {
+            "fr": "Vous connaissez un sujet ? Inscrivez-vous, donnez des cours et recevez de l'argent.",
+            "en": "You know a subject ? Signup, teach and get money."
+        },
+        "url": "https://easylearn.study"
+    },
+    {
         "createdAt": 1788869775700,
         "title": "[WIP] Ai Image watermark deleter",
         "description": {
