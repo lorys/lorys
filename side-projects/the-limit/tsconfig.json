@@ -4,6 +4,7 @@
     "moduleResolution": "nodenext",
     "target": "esnext",
     "strict": true,
+    "skipLibCheck": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "rootDir": "./",
