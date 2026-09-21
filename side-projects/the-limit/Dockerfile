@@ -11,6 +11,7 @@ RUN yarn install --production --frozen-lockfile && yarn cache clean
 COPY tsconfig.json ./
 COPY src ./src
 COPY web ./web
+COPY .env ./.env
 
 ENV NODE_ENV=production
 EXPOSE 3000
