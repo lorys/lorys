@@ -1,0 +1,56 @@
+<html>
+    <head>
+       <title>The limit</title>
+       <link href="/style.css" media="screen" rel="stylesheet" />
+       <style>
+            .case, .reference {
+                transition: 0.4s;
+            }
+            button {
+                z-index: 999;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1 class="title">Is it a splinter ?</h1>
+            <div class="row spaced-evenly centered">
+                <div class="column">
+                    <div class="row centered">
+                        <span>19 cm<br/>7,5 inches</span>
+                        <img src="/assets/splinter_hand.png" class="reference" />
+                    </div>
+                </div>
+                <div class="row centered">
+                    <img src="/assets/splinter_og.png" class="case" />
+                    <span id="size"></span>
+                </div>
+            </div>
+            <div class="row spaced-evenly" style="position: fixed; bottom: 5vw; left: 10vw; width: 80vw;"><button id="no">No</button><button id="yes">Yes</button></div>
+        </div>
+        <script>
+            const yes = document.querySelector("#yes");
+            const no = document.querySelector("#no");
+            let size = 1;
+
+            const refreshSize = () => {
+                document.querySelector("#size").innerHTML=`${size/10} cm<br/>${(size/10*0.393700787).toFixed(2)} inches`;
+            };
+
+            document.querySelector(".case").style.transform=`scale(${size*1/190})`;
+            refreshSize();
+            
+            yes.onclick = () => {
+                size += 5;
+                if (size > 190) {
+                    document.querySelector(".reference").style.transform=`scale(${190/size})`;
+                } else {
+                    document.querySelector(".case").style.transform=`scale(${size*1/190})`;
+                }
+                refreshSize();
+            };
+            
+            no.onclick = () => submitAnswer(size);
+        </script>
+    </body>
+</html>

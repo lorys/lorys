@@ -1,0 +1,65 @@
+<html>
+    <head>
+       <title>The limit</title>
+       <link href="/style.css" media="screen" rel="stylesheet" />
+       <style>
+            .case, .reference {
+                transition: 0.4s;
+            }
+            button {
+                z-index: 999;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1 class="title">Would you still be part of society ?</h1>
+            <div class="row spaced centered">
+                <div class="column centered">
+                    <img src="/assets/woods.png" style="max-height: 30vh; max-width: 30vw;" />
+                    <div>
+                        Completely out of society<br/>
+                        ~ 6 hours sleep / day<br/>
+                        ~ 40 hours to get food / week<br/>
+                        -25% life expectancy
+                    </div>
+                </div>
+                <div class="column centered" style="border-left: 3px solid black; padding-left: 20px;">
+                    <img src="/assets/society.png" style="max-height: 30vh; max-width: 30vw;" />
+                    <div id="price"></div>
+                </div>
+            </div>
+            <div class="row spaced centered">
+            </div>
+            <div class="row spaced-evenly" style="position: fixed; bottom: 5vw; left: 10vw; width: 80vw;">
+                <button id="no">No</button>
+                <button id="yes">Yes</button>
+            </div>
+        </div>
+        <script>
+            const yes = document.querySelector("#yes");
+            const no = document.querySelector("#no");
+            let pay = 20000; // cents in euro
+            const render = () => document.querySelector("#price").innerHTML=`
+            In society, <b>After Tax</b><br/>
+            ${(pay/100).toFixed(2)} &euro; / h<br/>
+            ${(pay*8*25/100).toFixed(2)} &euro; / month<br/>
+            ${(pay*8*25*12/100).toFixed(2)} &euro; / year<br/>
+            - <b>NO</b> social aid from government -`;
+
+            render();
+            yes.onclick = () => {
+                if (pay > 2000) {
+                    pay -= 300;
+                } else if (pay > 0) {
+                    pay -= 50;
+                } else if (pay == 0) {
+
+                }
+                render();
+            };
+            
+            no.onclick = () => submitAnswer(pay);
+        </script>
+    </body>
+</html>

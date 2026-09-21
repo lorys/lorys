@@ -1,0 +1,140 @@
+@font-face {
+    src: url(/assets/font.ttf);
+    font-family: "biro";
+}
+
+body {
+    margin: 0px;
+    padding: 0px;
+    font-family: biro;
+    font-size: 35px;
+}
+
+h1, h2, h3, h4, h5 {
+    margin: 0px;
+    padding: 0px;
+}
+
+.title {
+    text-align: center;
+    font-weight: bold;
+}
+
+.subtitle {
+    font-size: 30px;
+    text-align: center;
+    font-weight: bold;
+}
+
+.container {
+    width: 65vw;
+    margin: auto;
+    padding-bottom: 30vh;
+}
+
+img.main {
+    height: 100vh;
+    margin: auto;
+}
+
+.row {
+    display: flex;
+    flex-direction: row;
+}
+
+.spaced-evenly {
+    justify-content: space-evenly;
+}
+
+.spaced {
+    justify-content: space-between;
+}
+
+.column {
+    display: flex;
+    flex-direction: column;
+}
+
+.row.centered, .column.centered {
+    align-items: center;
+}
+
+.center {
+    text-align: center;
+}
+
+button {
+    font-family: Biro;
+    font-size: 50px;
+    padding: 10px;
+    width: 300px;
+    display: block;
+    margin: auto;
+    background: white;
+    border: 2px solid black;
+    border-radius: 10px;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.case {
+    max-width: 15vw;
+    border-right: 3px solid black;
+    border-radius: 10px;
+    padding-right: 10px;
+    margin-right: 10px;
+}
+.reference {
+    max-width: 15vw;
+    border-left: 3px solid black;
+    border-radius: 10px;
+    padding-left: 10px;
+    margin-left: 10px;
+}
+.modal-backdrop {
+    position: fixed;
+    inset: 0px;
+    z-index: 1000;
+    padding: 5vw;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.85);
+}
+
+.modal {
+    width: min(700px, 90vw);
+    max-height: 90vh;
+    overflow-y: auto;
+    box-sizing: border-box;
+    padding: 30px;
+    background: white;
+    border: 2px solid black;
+    border-radius: 10px;
+}
+
+.modal-select {
+    display: block;
+    margin: 20px auto 0px auto;
+    padding: 5px 10px;
+    font-family: biro;
+    font-size: 30px;
+    background: white;
+    border: 2px solid black;
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.modal-chart {
+    height: 320px;
+    margin: 20px 0px;
+}
+
+.modal-total {
+    display: block;
+}
+
+.modal-next {
+    margin-top: 30px;
+}

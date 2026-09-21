@@ -1,0 +1,40 @@
+<html>
+    <head>
+       <title>The limit</title>
+       <link href="/style.css" media="screen" rel="stylesheet" />
+       <style>
+            .case, .reference {
+                transition: 0.4s;
+            }
+            button {
+                z-index: 999;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1 class="title">Would you still use your car ?</h1>
+            <div class="row spaced-evenly centered">
+                <img src="/assets/gascar.png" style="max-height: 40vh; max-width: 40vw;" />
+                <span id="price"></span>
+            </div>
+            <div class="row spaced-evenly" style="position: fixed; bottom: 5vw; left: 10vw; width: 80vw;">
+                <button id="no">No</button>
+                <button id="yes">Yes</button>
+            </div>
+        </div>
+        <script>
+            const yes = document.querySelector("#yes");
+            const no = document.querySelector("#no");
+            let price = 200; // cents in euro
+
+            document.querySelector("#price").innerHTML=`${(price/100).toFixed(2)} &euro; / Liter<br/>${(price/100/0.87).toFixed(2)} $ (US) / Liter`;
+            yes.onclick = () => {
+                price += 10;
+                document.querySelector("#price").innerHTML=`${(price/100).toFixed(2)} &euro; / Liter<br/>${(price/100/0.87).toFixed(2)} $ (US) / Liter`;
+            };
+            
+            no.onclick = () => submitAnswer(price);
+        </script>
+    </body>
+</html>
