@@ -1,32 +1,28 @@
-<html>
+<!doctype html>
+<html lang="en">
     <head>
+       <meta charset="utf-8" />
+       <meta name="viewport" content="width=device-width, initial-scale=1" />
        <title>The limit</title>
        <link href="/style.css" media="screen" rel="stylesheet" />
-       <style>
-            .case, .reference {
-                transition: 0.4s;
-            }
-            button {
-                z-index: 999;
-            }
-        </style>
     </head>
     <body>
         <div class="container">
             <h1 class="title">Is it a splinter ?</h1>
-            <div class="row spaced-evenly centered">
-                <div class="column">
-                    <div class="row centered">
-                        <span>19 cm<br/>7,5 inches</span>
-                        <img src="/assets/splinter_hand.png" class="reference" />
-                    </div>
+            <div class="row spaced-evenly centered stage">
+                <div class="panel">
+                    <img src="/assets/splinter_hand.png" class="reference" />
+                    <span>19 cm<br/>7,5 inches</span>
                 </div>
-                <div class="row centered">
+                <div class="panel">
                     <img src="/assets/splinter_og.png" class="case" />
                     <span id="size"></span>
                 </div>
             </div>
-            <div class="row spaced-evenly" style="position: fixed; bottom: 5vw; left: 10vw; width: 80vw;"><button id="no">No</button><button id="yes">Yes</button></div>
+            <div class="actions">
+                <button id="no">No</button>
+                <button id="yes">Yes</button>
+            </div>
         </div>
         <script>
             const yes = document.querySelector("#yes");

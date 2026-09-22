@@ -1,13 +1,39 @@
 @font-face {
     src: url(/assets/font.ttf);
     font-family: "biro";
+    font-display: swap;
+}
+
+:root {
+    --ink: #000;
+    --paper: #fff;
+
+    /* One fluid scale, ~1.25 between steps. */
+    --text: clamp(17px, 1.1vw + 13px, 26px);
+    --lead: calc(var(--text) * 1.25);
+    --display: clamp(28px, 4.2vw + 12px, 52px);
+
+    --gap: clamp(16px, 3vw, 32px);
+    --edge: clamp(16px, 4vw, 48px);
+    --rule: 3px solid var(--ink);
+
+    /* Compared images share one width so the scaling stays truthful. */
+    --figure: min(240px, 34vw);
+}
+
+*, *::before, *::after {
+    box-sizing: border-box;
 }
 
 body {
     margin: 0px;
     padding: 0px;
-    font-family: biro;
-    font-size: 35px;
+    font-family: biro, system-ui, sans-serif;
+    font-size: var(--text);
+    line-height: 1.35;
+    color: var(--ink);
+    background: var(--paper);
+    -webkit-text-size-adjust: 100%;
 }
 
 h1, h2, h3, h4, h5 {
@@ -15,31 +41,52 @@ h1, h2, h3, h4, h5 {
     padding: 0px;
 }
 
+img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+}
+
 .title {
+    font-size: var(--display);
     text-align: center;
     font-weight: bold;
+    text-wrap: balance;
 }
 
 .subtitle {
-    font-size: 30px;
+    font-size: var(--lead);
     text-align: center;
     font-weight: bold;
 }
 
-.container {
-    width: 65vw;
-    margin: auto;
-    padding-bottom: 30vh;
+.center {
+    text-align: center;
 }
 
-img.main {
-    height: 100vh;
-    margin: auto;
+/* Question at the top, stage in the middle, answers at the bottom. */
+.container {
+    width: 100%;
+    max-width: 1100px;
+    min-height: 100vh;
+    min-height: 100svh;
+    margin: 0px auto;
+    padding: var(--edge);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--gap);
+}
+
+.stage {
+    margin-block: auto;
 }
 
 .row {
     display: flex;
     flex-direction: row;
+    flex-wrap: wrap;
+    gap: var(--gap);
 }
 
 .spaced-evenly {
@@ -59,44 +106,86 @@ img.main {
     align-items: center;
 }
 
-.center {
+/* One side of a comparison: picture over its numbers. */
+.panel {
+    flex: 1 1 300px;
+    max-width: 520px;
+    min-width: 0px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* Equal-height panels keep the captions on a common baseline. */
+    align-self: stretch;
+    justify-content: flex-start;
+    gap: var(--gap);
     text-align: center;
 }
 
+.panel + .panel {
+    padding-left: var(--gap);
+    border-left: var(--rule);
+}
+
+.figure {
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: clamp(150px, 32vh, 320px);
+}
+
+.case, .reference {
+    width: var(--figure);
+    transition: transform 0.4s;
+}
+
 button {
-    font-family: Biro;
-    font-size: 50px;
-    padding: 10px;
-    width: 300px;
-    display: block;
-    margin: auto;
-    background: white;
-    border: 2px solid black;
+    font-family: inherit;
+    font-size: var(--lead);
+    line-height: 1.2;
+    padding: 0.3em 0.6em;
+    color: var(--ink);
+    background: var(--paper);
+    border: 2px solid var(--ink);
     border-radius: 10px;
     text-decoration: underline;
     cursor: pointer;
 }
 
-.case {
-    max-width: 15vw;
-    border-right: 3px solid black;
-    border-radius: 10px;
-    padding-right: 10px;
-    margin-right: 10px;
+button:focus-visible {
+    outline: 3px solid var(--ink);
+    outline-offset: 3px;
 }
-.reference {
-    max-width: 15vw;
-    border-left: 3px solid black;
-    border-radius: 10px;
-    padding-left: 10px;
-    margin-left: 10px;
+
+.container > button {
+    align-self: center;
+    min-width: min(300px, 70vw);
 }
+
+/* Sticky, not fixed: the answers stay in reach on a short screen without
+   floating over the picture on a tall one. */
+.actions {
+    position: sticky;
+    bottom: 0px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--gap);
+    padding-block: var(--gap);
+    margin-bottom: calc(var(--edge) * -1);
+    background: var(--paper);
+}
+
+.actions button {
+    flex: 1 1 0px;
+    min-width: 120px;
+    max-width: 260px;
+}
+
 .modal-backdrop {
     position: fixed;
     inset: 0px;
     z-index: 1000;
-    padding: 5vw;
-    box-sizing: border-box;
+    padding: var(--edge);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -104,31 +193,37 @@ button {
 }
 
 .modal {
-    width: min(700px, 90vw);
+    width: min(700px, 100%);
     max-height: 90vh;
+    max-height: 90svh;
     overflow-y: auto;
-    box-sizing: border-box;
-    padding: 30px;
-    background: white;
-    border: 2px solid black;
+    padding: var(--gap);
+    background: var(--paper);
+    border: 2px solid var(--ink);
     border-radius: 10px;
+}
+
+.modal .title {
+    font-size: calc(var(--lead) * 1.2);
 }
 
 .modal-select {
     display: block;
-    margin: 20px auto 0px auto;
+    margin: var(--gap) auto 0px auto;
+    max-width: 100%;
     padding: 5px 10px;
-    font-family: biro;
-    font-size: 30px;
-    background: white;
-    border: 2px solid black;
+    font-family: inherit;
+    font-size: var(--text);
+    color: var(--ink);
+    background: var(--paper);
+    border: 2px solid var(--ink);
     border-radius: 10px;
     cursor: pointer;
 }
 
 .modal-chart {
-    height: 320px;
-    margin: 20px 0px;
+    height: min(320px, 40vh);
+    margin: var(--gap) 0px;
 }
 
 .modal-total {
@@ -136,5 +231,38 @@ button {
 }
 
 .modal-next {
-    margin-top: 30px;
+    display: block;
+    margin: var(--gap) auto 0px auto;
+    min-width: min(300px, 70vw);
+}
+
+/* One threshold decides stacking, so the dividers never disagree with it. */
+@media (max-width: 700px) {
+    :root {
+        --figure: min(240px, 52vw);
+    }
+
+    .row {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    /* Stacked panels need a rule across, not down. */
+    .panel + .panel {
+        padding-left: 0px;
+        padding-top: var(--gap);
+        border-left: 0px;
+        border-top: var(--rule);
+    }
+
+    /* Stacked, two pictures share one screen: keep the answers in reach. */
+    .row:has(.panel + .panel) .figure {
+        max-height: clamp(120px, 22vh, 220px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .case, .reference {
+        transition-duration: 0.01ms;
+    }
 }

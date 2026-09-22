@@ -1,24 +1,21 @@
-<html>
+<!doctype html>
+<html lang="en">
     <head>
+       <meta charset="utf-8" />
+       <meta name="viewport" content="width=device-width, initial-scale=1" />
        <title>The limit</title>
        <link href="/style.css" media="screen" rel="stylesheet" />
-       <style>
-            .case, .reference {
-                transition: 0.4s;
-            }
-            button {
-                z-index: 999;
-            }
-        </style>
     </head>
     <body>
         <div class="container">
             <h1 class="title">Would you still use your car ?</h1>
-            <div class="row spaced-evenly centered">
-                <img src="/assets/gascar.png" style="max-height: 40vh; max-width: 40vw;" />
-                <span id="price"></span>
+            <div class="row spaced-evenly centered stage">
+                <div class="panel">
+                    <img src="/assets/gascar.png" class="figure" />
+                    <span id="price"></span>
+                </div>
             </div>
-            <div class="row spaced-evenly" style="position: fixed; bottom: 5vw; left: 10vw; width: 80vw;">
+            <div class="actions">
                 <button id="no">No</button>
                 <button id="yes">Yes</button>
             </div>
