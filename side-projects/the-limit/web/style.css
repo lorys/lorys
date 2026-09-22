@@ -299,6 +299,18 @@ button:focus-visible {
     min-height: 65px;
 }
 
+/* Turnstile injects its own wrapper and iframe; center those too. */
+.captcha .cf-turnstile {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+}
+
+.captcha .cf-turnstile > *,
+.captcha iframe {
+    margin-inline: auto;
+}
+
 .container > button:disabled {
     opacity: 0.4;
     cursor: not-allowed;
