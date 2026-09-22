@@ -11,6 +11,7 @@ RUN yarn install --production --frozen-lockfile && yarn cache clean
 COPY tsconfig.json ./
 COPY src ./src
 COPY web ./web
+COPY views ./views
 COPY questions ./questions
 
 ENV NODE_ENV=production

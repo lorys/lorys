@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+    <head>
+       <meta charset="utf-8" />
+       <meta name="viewport" content="width=device-width, initial-scale=1" />
+       <title>The limit</title>
+       <link href="/style.css" media="screen" rel="stylesheet" />
+       <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+       <!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-TS32BL7E3N"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-TS32BL7E3N');
+</script>
+    </head>
+    <body>
+        <div class="container">
+            <h1 class="title">The limit</h1>
+            <p class="center">When does something stop being what it is?</p>
+            <div class="captcha">
+                <div class="cf-turnstile" data-sitekey="__TURNSTILE_SITE_KEY__" data-callback="onTurnstile" data-expired-callback="onTurnstileExpired"></div>
+            </div>
+            <button id="start" disabled>Start</button>
+        </div>
+        <script>
+            const start = document.querySelector("#start");
+            start.onclick = () => { self.location.href = "/play/0"; };
+
+            /* Already verified in a previous visit: no need to solve it again. */
+            if (__VERIFIED__) {
+                start.disabled = false;
+                document.querySelector(".captcha").remove();
+            }
+
+            window.onTurnstile = async (token) => {
+                const req = await fetch("/verify", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ token })
+                });
+                if (req.ok) {
+                    start.disabled = false;
+                } else if (window.turnstile) {
+                    window.turnstile.reset();
+                }
+            };
+
+            window.onTurnstileExpired = () => {
+                if (__VERIFIED__) return;
+                start.disabled = true;
+            };
+        </script>
+    </body>
+</html>

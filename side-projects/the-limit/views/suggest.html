@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+    <head>
+       <meta charset="utf-8" />
+       <meta name="viewport" content="width=device-width, initial-scale=1" />
+       <title>The limit</title>
+       <link href="/style.css" media="screen" rel="stylesheet" />
+       <!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-TS32BL7E3N"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-TS32BL7E3N');
+</script>
+    </head>
+    <body>
+        <div class="container">
+            <h1 class="title">That's all for now</h1>
+            <p class="center">You answered every question. Got an idea for a new one?</p>
+            <form id="suggest" class="column centered suggest">
+                <textarea id="idea" maxlength="500" rows="4" placeholder="When does a ... stop being a ...?" required></textarea>
+                <button type="submit">Send</button>
+            </form>
+            <p id="thanks" class="center" hidden>Thanks! We'll think about it.</p>
+        </div>
+        <script>
+            const form = document.querySelector("#suggest");
+            const idea = document.querySelector("#idea");
+
+            form.onsubmit = async (e) => {
+                e.preventDefault();
+                const text = idea.value.trim();
+                if (!text) return;
+
+                const req = await fetch("/suggest", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text })
+                });
+                if (!req.ok) return;
+
+                form.hidden = true;
+                document.querySelector("#thanks").hidden = false;
+            };
+        </script>
+    </body>
+</html>

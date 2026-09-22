@@ -292,3 +292,36 @@ button:focus-visible {
         transition-duration: 0.01ms;
     }
 }
+
+.captcha {
+    display: flex;
+    justify-content: center;
+    min-height: 65px;
+}
+
+.container > button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.suggest {
+    gap: var(--gap);
+    width: min(700px, 100%);
+    align-self: center;
+}
+
+.suggest textarea {
+    width: 100%;
+    padding: 10px;
+    font-family: inherit;
+    font-size: var(--text);
+    color: var(--ink);
+    background: var(--paper);
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    resize: vertical;
+}
+
+.suggest button {
+    min-width: min(300px, 70vw);
+}
