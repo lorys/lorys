@@ -337,3 +337,94 @@ button:focus-visible {
 .suggest button {
     min-width: min(300px, 70vw);
 }
+
+.about {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: calc(var(--gap) / 2);
+    margin-top: var(--gap);
+    padding-top: var(--gap);
+    border-top: var(--rule);
+}
+
+.about p {
+    margin: 0px;
+}
+
+.about a {
+    color: var(--ink);
+}
+
+/* Multi-color call-out: a rainbow gradient clipped to the text, sliding slowly. */
+.about .open-to-work {
+    font-size: var(--lead);
+    font-weight: bold;
+    background: linear-gradient(90deg, #e40303, #ff8c00, #d4b000, #008026, #004dff, #750787, #e40303);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-decoration: underline;
+    text-decoration-color: var(--ink);
+    display: inline-block;
+    animation: rainbow 4s linear infinite, bob 2.4s ease-in-out infinite;
+    transition: transform 0.2s;
+}
+
+/* The bob moves `translate`, so it keeps going under the hover tilt on `transform`. */
+.about .open-to-work:hover {
+    transform: scale(1.1) rotate(-3deg);
+}
+
+/* A little wiggle on hover, like a pen tapping the link. */
+.about .projects-link {
+    display: inline-block;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+    transition: text-underline-offset 0.2s, text-decoration-thickness 0.2s;
+}
+
+.about .projects-link:hover {
+    text-decoration-thickness: 4px;
+    text-underline-offset: 6px;
+    animation: wiggle 0.5s ease-in-out;
+}
+
+.about .projects-link:focus-visible {
+    outline: 3px solid var(--ink);
+    outline-offset: 3px;
+}
+
+.about .open-to-work:focus-visible {
+    outline: 3px solid var(--ink);
+    outline-offset: 3px;
+}
+
+@keyframes rainbow {
+    to { background-position: 200% 0; }
+}
+
+@keyframes bob {
+    0%, 100% { translate: 0px 0px; }
+    50% { translate: 0px -4px; }
+}
+
+@keyframes wiggle {
+    0%, 100% { transform: rotate(0deg); }
+    25% { transform: rotate(-4deg); }
+    50% { transform: rotate(3deg); }
+    75% { transform: rotate(-2deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .about .open-to-work,
+    .about .projects-link:hover {
+        animation: none;
+    }
+
+    .about .open-to-work,
+    .about .projects-link {
+        transition: none;
+    }
+}
