@@ -25,8 +25,9 @@ type AnswerDoc = {
 };
 
 const mongo = new MongoClient(MONGO_URL);
+console.log(MONGO_URL);
 await mongo.connect();
-const answers: Collection<AnswerDoc> = mongo.db('the-limit').collection<AnswerDoc>('answers');
+const answers: Collection<AnswerDoc> = mongo.db().collection<AnswerDoc>('answers');
 await answers.createIndex({ question: 1 }, { unique: true });
 
 let cache: { [key: string]: string } = {};
