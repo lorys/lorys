@@ -114,8 +114,8 @@ fastify.post('/answer', async (req: Fastify.FastifyRequest<{ Body: { question?: 
   if (!answer) {
     return res.status(400).send({ error: 'invalid answer' });
   }
-  console.log({ headers: req.headers });
-  const country = await countryOf(req.ip);
+
+  const country = await countryOf(req.headers['cf-connecting-ip'] as string);
 
   const doc = await answers.findOneAndUpdate(
     { question },
