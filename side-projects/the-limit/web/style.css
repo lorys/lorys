@@ -8,17 +8,23 @@
     --ink: #000;
     --paper: #fff;
 
-    /* One fluid scale, ~1.25 between steps. */
-    --text: clamp(17px, 1.1vw + 13px, 26px);
-    --lead: calc(var(--text) * 1.25);
-    --display: clamp(28px, 4.2vw + 12px, 52px);
+    /* Each range tops out by 1024px, so every desktop keeps the sizes this page
+       has always used (35px text, 70px question, 50px buttons) and only
+       narrower screens scale down. */
+    --text: clamp(18px, 2.68vw + 7.5px, 35px);
+    --lead: clamp(17px, 2.05vw + 9px, 30px);
+    --button: clamp(24px, 4.1vw + 8px, 50px);
+    --display: clamp(30px, 6.31vw + 5.4px, 70px);
 
-    --gap: clamp(16px, 3vw, 32px);
-    --edge: clamp(16px, 4vw, 48px);
+    --gap: clamp(16px, 3vw, 24px);
+    --edge: clamp(16px, 6vw, 130px);
+    /* Vertical breathing room is bounded by the viewport height, not its width,
+       so a wide-but-short window does not spend its height on padding. */
+    --edge-y: clamp(10px, 2vh, 32px);
     --rule: 3px solid var(--ink);
 
     /* Compared images share one width so the scaling stays truthful. */
-    --figure: min(240px, 34vw);
+    --figure: clamp(140px, 15vw, 290px);
 }
 
 *, *::before, *::after {
@@ -30,7 +36,6 @@ body {
     padding: 0px;
     font-family: biro, system-ui, sans-serif;
     font-size: var(--text);
-    line-height: 1.35;
     color: var(--ink);
     background: var(--paper);
     -webkit-text-size-adjust: 100%;
@@ -67,11 +72,12 @@ img {
 /* Question at the top, stage in the middle, answers at the bottom. */
 .container {
     width: 100%;
-    max-width: 1100px;
+    max-width: 1500px;
     min-height: 100vh;
     min-height: 100svh;
     margin: 0px auto;
-    padding: var(--edge);
+    padding-inline: var(--edge);
+    padding-block: var(--edge-y);
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -109,7 +115,7 @@ img {
 /* One side of a comparison: picture over its numbers. */
 .panel {
     flex: 1 1 300px;
-    max-width: 520px;
+    max-width: 620px;
     min-width: 0px;
     display: flex;
     flex-direction: column;
@@ -117,7 +123,7 @@ img {
     /* Equal-height panels keep the captions on a common baseline. */
     align-self: stretch;
     justify-content: flex-start;
-    gap: var(--gap);
+    gap: clamp(8px, 1.5vw, 18px);
     text-align: center;
 }
 
@@ -126,11 +132,24 @@ img {
     border-left: var(--rule);
 }
 
+/* The bounds this page has always used: 40vh/40vw alone, 30vh/30vw when two
+   share a row. Side by side only — stacked, a picture may use the full width. */
 .figure {
     width: auto;
     height: auto;
     max-width: 100%;
-    max-height: clamp(150px, 32vh, 320px);
+    max-height: 40vh;
+}
+
+@media (min-width: 701px) {
+    .figure {
+        max-width: 40vw;
+    }
+
+    .row:has(.panel + .panel) .figure {
+        max-width: 30vw;
+        max-height: 30vh;
+    }
 }
 
 .case, .reference {
@@ -140,9 +159,9 @@ img {
 
 button {
     font-family: inherit;
-    font-size: var(--lead);
+    font-size: var(--button);
     line-height: 1.2;
-    padding: 0.3em 0.6em;
+    padding: 0.4em 0.6em;
     color: var(--ink);
     background: var(--paper);
     border: 2px solid var(--ink);
@@ -168,17 +187,19 @@ button:focus-visible {
     bottom: 0px;
     display: flex;
     flex-wrap: wrap;
-    justify-content: center;
+    justify-content: space-evenly;
     gap: var(--gap);
-    padding-block: var(--gap);
-    margin-bottom: calc(var(--edge) * -1);
+    padding-block: var(--edge-y);
+    margin-bottom: calc(var(--edge-y) * -1);
     background: var(--paper);
 }
 
+/* Basis 0 so the pair always shares one line; they grow to the 300px this page
+   has always used, and space-evenly spreads the slack on a wide screen. */
 .actions button {
     flex: 1 1 0px;
-    min-width: 120px;
-    max-width: 260px;
+    min-width: 0px;
+    max-width: 300px;
 }
 
 .modal-backdrop {
