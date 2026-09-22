@@ -24,7 +24,7 @@
     --rule: 3px solid var(--ink);
 
     /* Compared images share one width so the scaling stays truthful. */
-    --figure: clamp(140px, 15vw, 290px);
+    --figure: clamp(120px, 12vw, 220px);
 }
 
 *, *::before, *::after {
@@ -36,6 +36,9 @@ body {
     padding: 0px;
     font-family: biro, system-ui, sans-serif;
     font-size: var(--text);
+    /* This face reports a very airy normal line-height (~1.7); tighten it so
+       the wording sits together instead of spreading down the page. */
+    line-height: 1.25;
     color: var(--ink);
     background: var(--paper);
     -webkit-text-size-adjust: 100%;
@@ -132,23 +135,25 @@ img {
     border-left: var(--rule);
 }
 
-/* The bounds this page has always used: 40vh/40vw alone, 30vh/30vw when two
-   share a row. Side by side only — stacked, a picture may use the full width. */
+/* A picture supports the question, it does not fill the screen: it is capped in
+   px as well as vh so a tall monitor does not simply scale it up. */
 .figure {
     width: auto;
     height: auto;
     max-width: 100%;
-    max-height: 40vh;
+    max-height: min(30vh, 230px);
 }
 
 @media (min-width: 701px) {
     .figure {
-        max-width: 40vw;
+        max-width: 32vw;
+        max-height: min(30vh, 300px);
     }
 
+    /* Two pictures share the row, so each takes less. */
     .row:has(.panel + .panel) .figure {
-        max-width: 30vw;
-        max-height: 30vh;
+        max-width: 26vw;
+        max-height: min(24vh, 210px);
     }
 }
 
@@ -260,7 +265,7 @@ button:focus-visible {
 /* One threshold decides stacking, so the dividers never disagree with it. */
 @media (max-width: 700px) {
     :root {
-        --figure: min(240px, 52vw);
+        --figure: min(200px, 46vw);
     }
 
     .row {
@@ -278,7 +283,7 @@ button:focus-visible {
 
     /* Stacked, two pictures share one screen: keep the answers in reach. */
     .row:has(.panel + .panel) .figure {
-        max-height: clamp(120px, 22vh, 220px);
+        max-height: clamp(100px, 18vh, 175px);
     }
 }
 
