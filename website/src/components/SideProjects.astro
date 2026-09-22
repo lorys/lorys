@@ -2,18 +2,38 @@
 import projects from '../sideprojects.json';
 import SideProject from './SideProject.astro';
 
+const { locale = 'fr' }: { locale?: 'fr' | 'en' | 'es' } = Astro.props;
+
+const TITLE = { fr: 'Projets', en: 'Projects', es: 'Proyectos' };
+
 const sorted = [...projects].sort((a, b) => b.createdAt - a.createdAt);
 ---
 
 <section class="list">
-	<h3 class="list-title">Side Projects</h3>
-	<div class="scroll">
+	<h2 class="list-title">{TITLE[locale]}</h2>
+	<ul class="rows">
 		{sorted.map((project) => (
-			<SideProject
-				title={project.title}
-				description={project.description}
-				url={project.url}
-			/>
+			<li>
+				<SideProject
+					title={project.title}
+					description={project.description}
+					url={project.url}
+					createdAt={project.createdAt}
+					locale={locale}
+				/>
+			</li>
 		))}
-	</div>
+	</ul>
 </section>
+
+<style>
+	.rows {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	.rows li + li {
+		border-top: 1px solid var(--rule);
+	}
+</style>

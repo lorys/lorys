@@ -1,42 +1,76 @@
 ---
-const { title, description, url } = Astro.props;
+const { title, description, url, createdAt, locale = 'fr' } = Astro.props;
 
+// Spanish descriptions don't exist yet, so fall back to English before French.
 const desc =
 	typeof description === 'string'
 		? description
-		: description?.fr ?? description?.en ?? Object.values(description ?? {})[0] ?? '';
+		: description?.[locale] ?? description?.en ?? description?.fr ?? '';
+
+const host = new URL(url).hostname;
+const year = createdAt ? new Date(createdAt).getFullYear() : null;
 ---
 
-<a class="tile" href={url} target="_blank" rel="noopener noreferrer">
-	<h1>{title}</h1>
-	{desc && <p>{desc}</p>}
+<a class="row" href={url} target="_blank" rel="noopener noreferrer">
+	<span class="head">
+		<span class="title">{title}</span>
+		{year && <span class="year">{year}</span>}
+	</span>
+	{desc && <span class="desc">{desc}</span>}
+	<span class="host">{host}</span>
 </a>
 
 <style>
-	.tile {
+	.row {
 		display: block;
-		padding: 16px;
-		margin-bottom: 12px;
-		border: 1px solid rgb(60, 60, 60);
-		border-radius: 8px;
+		padding: 18px 12px;
+		margin: 0 -12px;
+		border-radius: 10px;
 		text-decoration: none;
 		color: inherit;
-		transition: border-color 0.15s ease, background-color 0.15s ease;
 	}
 
-	.tile:hover {
-		border-color: rgb(120, 120, 120);
-		background-color: rgb(40, 40, 40);
+	.row:hover {
+		background-color: var(--surface);
+		box-shadow: 0 0 0 1px var(--rule);
 	}
 
-	.tile h1 {
-		font-size: 18px;
-		margin: 0 0 6px;
+	.head {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		gap: 16px;
 	}
 
-	.tile p {
-		margin: 0;
+	.title {
+		font-size: 19px;
+		font-weight: 700;
+	}
+
+	.row:hover .title {
+		color: var(--accent);
+	}
+
+	.year {
+		font-size: 15px;
+		color: var(--muted);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.desc {
+		display: block;
+		margin-top: 4px;
+		color: var(--muted);
+	}
+
+	.host {
+		display: inline-block;
+		margin-top: 8px;
+		padding: 1px 8px;
 		font-size: 14px;
-		color: rgb(180, 180, 180);
+		font-weight: 500;
+		color: var(--accent);
+		background-color: var(--accent-soft);
+		border-radius: 6px;
 	}
 </style>

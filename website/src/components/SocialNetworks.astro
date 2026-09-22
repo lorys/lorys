@@ -1,29 +1,23 @@
----
-import github from '../assets/github-white-icon.png';
-import linkedin from '../assets/linkedin_logo.png';
-import chesscom from '../assets/chess.com.webp';
-import { Image } from 'astro:assets';
----
-
-<div class="socialNetworks">
-    <a href="https://github.com/lorys" target="_blank"><Image src={github} alt="My Github" /></a>
-    <a href="https://linkedin.com/in/lorys" target="_blank"><Image src={linkedin} alt="My Linkedin" /></a>
-    <a href="https://www.chess.com/member/loryslopez" target="_blank"><Image src={chesscom} alt="My Chess.com" /></a>
-</div>
+<nav class="socialNetworks">
+    <a href="https://github.com/lorys" target="_blank" rel="noopener noreferrer">GitHub</a>
+    <a href="https://linkedin.com/in/lorys" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+    <a href="https://www.chess.com/member/loryslopez" target="_blank" rel="noopener noreferrer">Chess.com</a>
+</nav>
 
 <style>
     .socialNetworks {
-        display: flex; 
-        flex-direction: row;
-        justify-content: space-evenly;
-    }
-
-    .socialNetworks a img {
-        width: 30px;
-        height: 30px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 20px;
     }
 
     .socialNetworks a {
-        margin: 10px;
+        font-weight: 600;
+        text-decoration: none;
+    }
+
+    .socialNetworks a:hover {
+        text-decoration: underline;
+        text-underline-offset: 3px;
     }
 </style>

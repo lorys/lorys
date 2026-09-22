@@ -1,0 +1,267 @@
+---
+const { locale = 'fr' }: { locale?: 'fr' | 'en' | 'es' } = Astro.props;
+
+const T = {
+	fr: { host: 'Serveur maison', cpu: 'Processeur', ram: 'Mémoire', updated: 'mis à jour', offline: 'hors ligne', loading: 'connexion…' },
+	en: { host: 'Home server', cpu: 'Processor', ram: 'Memory', updated: 'updated', offline: 'offline', loading: 'connecting…' },
+	es: { host: 'Servidor casero', cpu: 'Procesador', ram: 'Memoria', updated: 'actualizado', offline: 'sin conexión', loading: 'conectando…' },
+};
+
+const t = T[locale] ?? T.fr;
+---
+
+<aside class="status" data-status data-locale={locale} aria-label={t.host}>
+	<div class="inner">
+		<p class="host">
+			<span class="dot" data-dot></span>
+			{t.host}
+			<span class="state" data-state>{t.loading}</span>
+		</p>
+
+		<div class="meters">
+			<div class="meter">
+				<span class="label">{t.cpu}</span>
+				<span
+					class="track"
+					role="progressbar"
+					aria-label={t.cpu}
+					aria-valuemin="0"
+					aria-valuemax="100"
+					data-track="load"
+				>
+					<span class="fill" data-fill="load"></span>
+				</span>
+				<span class="value" data-value="load">—</span>
+			</div>
+
+			<div class="meter">
+				<span class="label">{t.ram}</span>
+				<span
+					class="track"
+					role="progressbar"
+					aria-label={t.ram}
+					aria-valuemin="0"
+					aria-valuemax="100"
+					data-track="ram"
+				>
+					<span class="fill" data-fill="ram"></span>
+				</span>
+				<span class="value" data-value="ram">—</span>
+			</div>
+		</div>
+	</div>
+</aside>
+
+<script is:inline data-stats-script>
+	(() => {
+		const root = document.querySelector('[data-status]');
+		if (!root) return;
+
+		const LABELS = {
+			fr: { updated: 'mis à jour', offline: 'hors ligne', now: "à l'instant", seconds: (n) => `il y a ${n} s` },
+			en: { updated: 'updated', offline: 'offline', now: 'just now', seconds: (n) => `${n}s ago` },
+			es: { updated: 'actualizado', offline: 'sin conexión', now: 'ahora mismo', seconds: (n) => `hace ${n} s` },
+		};
+
+		const labels = LABELS[root.dataset.locale] ?? LABELS.fr;
+		const state = root.querySelector('[data-state]');
+		const dot = root.querySelector('[data-dot]');
+		const fields = {
+			load: { fill: root.querySelector('[data-fill="load"]'), value: root.querySelector('[data-value="load"]'), track: root.querySelector('[data-track="load"]') },
+			ram: { fill: root.querySelector('[data-fill="ram"]'), value: root.querySelector('[data-value="ram"]'), track: root.querySelector('[data-track="ram"]') },
+		};
+
+		let lastSuccess = null;
+		let timer = null;
+
+		// "9%" -> 9; anything unparsable leaves the meter empty rather than showing a wrong number.
+		const toPercent = (raw) => {
+			const n = parseFloat(String(raw ?? '').replace('%', ''));
+			return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : null;
+		};
+
+		const paint = (field, percent) => {
+			const { fill, value, track } = field;
+			if (percent === null) {
+				fill.style.width = '0%';
+				value.textContent = '—';
+				track.removeAttribute('aria-valuenow');
+				track.dataset.level = 'idle';
+				return;
+			}
+			fill.style.width = `${percent}%`;
+			value.textContent = `${Math.round(percent)}%`;
+			track.setAttribute('aria-valuenow', String(Math.round(percent)));
+			track.dataset.level = percent >= 85 ? 'high' : percent >= 60 ? 'busy' : 'calm';
+		};
+
+		const showAge = () => {
+			if (lastSuccess === null) return;
+			const seconds = Math.round((Date.now() - lastSuccess) / 1000);
+			state.textContent = seconds < 5 ? `${labels.updated} ${labels.now}` : `${labels.updated} ${labels.seconds(seconds)}`;
+		};
+
+		const load = async () => {
+			try {
+				const response = await fetch('/stats.json', { cache: 'no-store' });
+				if (!response.ok) throw new Error(`HTTP ${response.status}`);
+				const stats = await response.json();
+				paint(fields.load, toPercent(stats.systemLoad));
+				paint(fields.ram, toPercent(stats.ramUsed));
+				lastSuccess = Date.now();
+				root.dataset.online = 'true';
+				showAge();
+			} catch {
+				paint(fields.load, null);
+				paint(fields.ram, null);
+				root.dataset.online = 'false';
+				state.textContent = labels.offline;
+			}
+		};
+
+		const start = () => {
+			if (timer) return;
+			load();
+			timer = setInterval(load, 3000);
+		};
+
+		const stop = () => {
+			clearInterval(timer);
+			timer = null;
+		};
+
+		// No point polling a tab nobody is looking at.
+		document.addEventListener('visibilitychange', () => (document.hidden ? stop() : start()));
+		setInterval(showAge, 1000);
+		start();
+	})();
+</script>
+
+<style>
+	.status {
+		position: fixed;
+		inset: auto 0 0 0;
+		z-index: 10;
+		background-color: rgba(255, 255, 255, 0.92);
+		backdrop-filter: blur(8px);
+		border-top: 1px solid var(--rule);
+	}
+
+	.inner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		gap: 6px 32px;
+		width: 100%;
+		max-width: 720px;
+		margin: 0 auto;
+		padding: 12px 16px;
+		box-sizing: border-box;
+	}
+
+	.host {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 0;
+		font-size: 15px;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+
+	.state {
+		font-weight: 400;
+		color: var(--muted);
+	}
+
+	.dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background-color: #9aa1b0;
+		flex-shrink: 0;
+	}
+
+	.status[data-online='true'] .dot {
+		background-color: #1c9c5b;
+	}
+
+	.status[data-online='false'] .dot {
+		background-color: #c2403d;
+	}
+
+	.meters {
+		display: flex;
+		align-items: center;
+		gap: 24px;
+		min-width: 0;
+	}
+
+	.meter {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		font-size: 14px;
+	}
+
+	.label {
+		color: var(--muted);
+		white-space: nowrap;
+	}
+
+	.track {
+		display: block;
+		width: 110px;
+		height: 6px;
+		border-radius: 999px;
+		background-color: #e7eaf0;
+		overflow: hidden;
+	}
+
+	.fill {
+		display: block;
+		width: 0%;
+		height: 100%;
+		border-radius: inherit;
+		background-color: var(--accent);
+		transition: width 0.6s ease;
+	}
+
+	.track[data-level='busy'] .fill {
+		background-color: #b8850c;
+	}
+
+	.track[data-level='high'] .fill {
+		background-color: #c2403d;
+	}
+
+	.value {
+		min-width: 40px;
+		font-variant-numeric: tabular-nums;
+		font-weight: 600;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.fill {
+			transition: none;
+		}
+	}
+
+	@media (max-width: 620px) {
+		.inner {
+			gap: 8px 16px;
+			padding: 10px 16px;
+		}
+
+		.meters {
+			width: 100%;
+			justify-content: space-between;
+			gap: 16px;
+		}
+
+		.track {
+			width: 72px;
+		}
+	}
+</style>

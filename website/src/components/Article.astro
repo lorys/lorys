@@ -36,34 +36,74 @@ const formattedDate = article.data.pubDate.toLocaleDateString(DATE_LOCALE[locale
 <style>
 	.post .back {
 		display: inline-block;
-		margin-top: 20px;
-		margin-bottom: 20px;
-		color: rgb(160, 160, 160);
+		margin-bottom: 32px;
+		font-weight: 600;
+		text-decoration: none;
+	}
+
+	.post .back:hover {
+		text-decoration: underline;
+		text-underline-offset: 3px;
+	}
+
+	.post h1 {
+		margin: 0 0 8px;
+		font-size: clamp(32px, 7vw, 48px);
+		font-weight: 800;
+		line-height: 1.05;
+		letter-spacing: -0.03em;
 	}
 
 	.post time {
 		display: block;
-		color: rgb(94, 94, 94);
-		margin-bottom: 30px;
-	}
-
-	.post h1 {
-		font-size: clamp(28px, 7vw, 44px);
+		color: var(--muted);
+		padding-bottom: 32px;
+		margin-bottom: 32px;
+		border-bottom: 1px solid var(--rule);
 	}
 
 	.post .body {
-		line-height: 1.6;
+		font-size: 18px;
+		line-height: 1.65;
+		max-width: 65ch;
+	}
+
+	.post .body :global(h1),
+	.post .body :global(h2),
+	.post .body :global(h3) {
+		line-height: 1.2;
+		letter-spacing: -0.01em;
+		margin: 1.8em 0 0.5em;
+	}
+
+	.post .body :global(h1) {
+		font-size: 26px;
+	}
+
+	.post .body :global(code) {
+		font-size: 0.9em;
+		padding: 1px 5px;
+		background-color: var(--accent-soft);
+		border-radius: 4px;
+	}
+
+	.post .body :global(pre) {
+		overflow-x: auto;
+		padding: 16px;
+		border-radius: 10px;
+		background-color: var(--surface);
+		border: 1px solid var(--rule);
+	}
+
+	.post .body :global(pre code) {
+		padding: 0;
+		background: none;
 	}
 
 	.post .body :global(img) {
 		max-width: 100%;
 		height: auto;
-	}
-
-	.post .body :global(pre) {
-		overflow-x: auto;
-		padding: 12px;
-		border-radius: 6px;
+		border-radius: 10px;
 	}
 
 	.post .body :global(table) {

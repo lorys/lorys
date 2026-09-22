@@ -1,0 +1,77 @@
+---
+import Layout from '../layouts/Layout.astro';
+import SocialNetworks from './SocialNetworks.astro';
+import SideProjects from './SideProjects.astro';
+import LatestPosts from './LatestPosts.astro';
+
+const { locale = 'fr' }: { locale?: 'fr' | 'en' | 'es' } = Astro.props;
+
+const ROLE = { fr: 'Développeur Fullstack', en: 'Fullstack Developer', es: 'Desarrollador Fullstack' };
+---
+
+<Layout lang={locale}>
+	<header class="intro">
+		<img class="pp" src="/ppgrey.gif" alt="" width="88" height="88" />
+		<div>
+			<h1 class="name">Lorys</h1>
+			<p class="role">{ROLE[locale]}</p>
+			<SocialNetworks />
+		</div>
+	</header>
+
+	<main>
+		<SideProjects locale={locale} />
+		<LatestPosts locale={locale} />
+	</main>
+</Layout>
+
+<style>
+	.intro {
+		display: flex;
+		align-items: center;
+		gap: 24px;
+		padding-bottom: 40px;
+		border-bottom: 1px solid var(--rule);
+	}
+
+	.pp {
+		width: 88px;
+		height: 88px;
+		border-radius: 50%;
+		object-fit: cover;
+		flex-shrink: 0;
+	}
+
+	.name {
+		margin: 0;
+		font-size: clamp(44px, 11vw, 72px);
+		font-weight: 800;
+		line-height: 0.95;
+		letter-spacing: -0.04em;
+	}
+
+	.role {
+		margin: 8px 0 12px;
+		font-size: 19px;
+		color: var(--muted);
+	}
+
+	main :global(.list) {
+		margin-top: 48px;
+	}
+
+	main :global(.list-title) {
+		margin: 0 0 8px;
+		font-size: 22px;
+		font-weight: 700;
+		letter-spacing: -0.01em;
+	}
+
+	@media (max-width: 480px) {
+		.intro {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 16px;
+		}
+	}
+</style>

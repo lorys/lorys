@@ -1,49 +1,65 @@
 ---
-const { title, description, href, date } = Astro.props;
+const { title, description, href, date, locale = 'fr' } = Astro.props;
+
+const DATE_LOCALE = { fr: 'fr-FR', en: 'en-US', es: 'es-ES' };
 
 const formatted = date
-	? new Date(date).toLocaleDateString('fr-FR', { year: 'numeric', month: 'short', day: 'numeric' })
+	? new Date(date).toLocaleDateString(DATE_LOCALE[locale] ?? 'fr-FR', { year: 'numeric', month: 'short', day: 'numeric' })
 	: null;
 ---
 
-<a class="tile" href={href}>
-	<h1>{title}</h1>
+<a class="row" href={href}>
 	{formatted && <time datetime={new Date(date).toISOString()}>{formatted}</time>}
-	{description && <p>{description}</p>}
+	<span class="text">
+		<span class="title">{title}</span>
+		{description && <span class="desc">{description}</span>}
+	</span>
 </a>
 
 <style>
-	.tile {
-		display: block;
-		padding: 16px;
-		margin-bottom: 12px;
-		border: 1px solid rgb(60, 60, 60);
-		border-radius: 8px;
+	.row {
+		display: grid;
+		grid-template-columns: 120px 1fr;
+		gap: 16px;
+		align-items: baseline;
+		padding: 18px 12px;
+		margin: 0 -12px;
+		border-radius: 10px;
 		text-decoration: none;
 		color: inherit;
-		transition: border-color 0.15s ease, background-color 0.15s ease;
 	}
 
-	.tile:hover {
-		border-color: rgb(120, 120, 120);
-		background-color: rgb(40, 40, 40);
+	.row:hover {
+		background-color: var(--surface);
+		box-shadow: 0 0 0 1px var(--rule);
 	}
 
-	.tile h1 {
-		font-size: 18px;
-		margin: 0 0 4px;
+	time {
+		font-size: 15px;
+		color: var(--muted);
+		font-variant-numeric: tabular-nums;
 	}
 
-	.tile time {
+	.title {
 		display: block;
-		font-size: 12px;
-		color: rgb(94, 94, 94);
-		margin-bottom: 6px;
+		font-size: 19px;
+		font-weight: 700;
 	}
 
-	.tile p {
-		margin: 0;
-		font-size: 14px;
-		color: rgb(180, 180, 180);
+	.row:hover .title {
+		color: var(--accent);
+	}
+
+	.desc {
+		display: block;
+		margin-top: 4px;
+		color: var(--muted);
+	}
+
+	@media (max-width: 480px) {
+		.row {
+			grid-template-columns: 1fr;
+			gap: 2px;
+		}
 	}
 </style>

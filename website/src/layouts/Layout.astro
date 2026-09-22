@@ -1,18 +1,21 @@
 ---
+import ServerStatus from '../components/ServerStatus.astro';
+
 const { lang = 'fr' } = Astro.props;
 ---
 <!doctype html>
 <html lang={lang}>
 	<head>
 		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="color-scheme" content="light" />
 		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 		<link rel="icon" href="/favicon.ico" />
 		<meta name="generator" content={Astro.generator} />
 		<title>Lorys 💻</title>
 		<link rel="preconnect" href="https://fonts.googleapis.com">
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-		<link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Roboto+Mono:ital,wght@0,100..700;1,100..700&display=swap" rel="stylesheet">
+		<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:ital,wght@0,400..900;1,400..900&display=swap" rel="stylesheet">
 <!-- Google tag (gtag.js) -->
 <script is:inline async src="https://www.googletagmanager.com/gtag/js?id=G-RC63XCGT5Y"></script>
 <script is:inline>
@@ -27,22 +30,37 @@ const { lang = 'fr' } = Astro.props;
 		<div class="container">
 			<slot />
 		</div>
+		<ServerStatus locale={lang} />
 	</body>
 </html>
 
 <style>
+	:global(:root) {
+		--paper: #f7f8fa;
+		--surface: #ffffff;
+		--ink: #16181d;
+		--muted: #5e6573;
+		--rule: #e1e4ea;
+		--accent: #2147d9;
+		--accent-soft: #eef2fd;
+		color-scheme: light;
+	}
+
 	html,
 	body {
 		margin: 0;
 		width: 100%;
-		height: 100%;
+		min-height: 100%;
 	}
 
 	body {
-		background-color: rgb(32, 32, 32);
-		color: rgb(252, 247, 238);
-		font-family: "Roboto Mono";
+		background-color: var(--paper);
+		color: var(--ink);
+		font-family: "Schibsted Grotesk", system-ui, sans-serif;
+		font-size: 17px;
+		line-height: 1.55;
 		overflow-wrap: break-word;
+		-webkit-font-smoothing: antialiased;
 	}
 
 	:global(img) {
@@ -50,14 +68,27 @@ const { lang = 'fr' } = Astro.props;
 		height: auto;
 	}
 
+	:global(a) {
+		color: var(--accent);
+	}
+
+	:global(a:focus-visible) {
+		outline: 2px solid var(--accent);
+		outline-offset: 3px;
+		border-radius: 4px;
+	}
+
 	.container {
-		width: min(900px, 90vw);
-		margin: auto;
-		padding: 24px 16px;
+		width: 100%;
+		max-width: 720px;
+		margin: 0 auto;
+		padding: 56px 16px 140px;
 		box-sizing: border-box;
 	}
 
-	.home .title {
-		text-align: center;
+	@media (max-width: 600px) {
+		.container {
+			padding-top: 32px;
+		}
 	}
 </style>
