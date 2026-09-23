@@ -42,9 +42,10 @@
         <script>
             const yes = document.querySelector("#yes");
             const no = document.querySelector("#no");
-            let pay = 20000; // cents in euro
+            let pay = 2000; // cents in euro
             const render = () => document.querySelector("#price").innerHTML=`
             In society, <b>After Tax</b><br/>
+            You'll earn for the rest of your life :
             ${(pay/100).toFixed(2)} &euro; / h<br/>
             ${(pay*8*25/100).toFixed(2)} &euro; / month<br/>
             ${(pay*8*25*12/100).toFixed(2)} &euro; / year<br/>
@@ -52,10 +53,8 @@
 
             render();
             yes.onclick = () => {
-                if (pay > 2000) {
-                    pay -= 300;
-                } else if (pay > 0) {
-                    pay -= 50;
+                if (pay > 0) {
+                    pay -= 15;
                 } else if (pay == 0) {
 
                 }
