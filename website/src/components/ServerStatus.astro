@@ -2,9 +2,9 @@
 const { locale = 'fr' }: { locale?: 'fr' | 'en' | 'es' } = Astro.props;
 
 const T = {
-	fr: { host: 'Serveur maison', cpu: 'Processeur', ram: 'Mémoire', updated: 'mis à jour', offline: 'hors ligne', loading: 'connexion…' },
-	en: { host: 'Home server', cpu: 'Processor', ram: 'Memory', updated: 'updated', offline: 'offline', loading: 'connecting…' },
-	es: { host: 'Servidor casero', cpu: 'Procesador', ram: 'Memoria', updated: 'actualizado', offline: 'sin conexión', loading: 'conectando…' },
+	fr: { host: 'Serveur maison', cpu: 'Processeur', ram: 'Mémoire', net: 'Réseau', down: 'Descendant', up: 'Montant', loading: 'connexion…' },
+	en: { host: 'Home server', cpu: 'Processor', ram: 'Memory', net: 'Network', down: 'Download', up: 'Upload', loading: 'connecting…' },
+	es: { host: 'Servidor casero', cpu: 'Procesador', ram: 'Memoria', net: 'Red', down: 'Bajada', up: 'Subida', loading: 'conectando…' },
 };
 
 const t = T[locale] ?? T.fr;
@@ -48,6 +48,24 @@ const t = T[locale] ?? T.fr;
 				</span>
 				<span class="value" data-value="ram">—</span>
 			</div>
+
+			<div class="meter net">
+				<span class="label">{t.net}</span>
+				<span class="rates">
+					<span class="rate" aria-label={t.down} title={t.down}>
+						<svg class="arrow" viewBox="0 0 10 12" aria-hidden="true" focusable="false">
+							<path d="M5 0v9M1 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" />
+						</svg>
+						<span class="rate-value" data-value="download">—</span>
+					</span>
+					<span class="rate" aria-label={t.up} title={t.up}>
+						<svg class="arrow" viewBox="0 0 10 12" aria-hidden="true" focusable="false">
+							<path d="M5 12V3M1 6l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.6" />
+						</svg>
+						<span class="rate-value" data-value="upload">—</span>
+					</span>
+				</span>
+			</div>
 		</div>
 	</div>
 </aside>
@@ -69,6 +87,10 @@ const t = T[locale] ?? T.fr;
 		const fields = {
 			load: { fill: root.querySelector('[data-fill="load"]'), value: root.querySelector('[data-value="load"]'), track: root.querySelector('[data-track="load"]') },
 			ram: { fill: root.querySelector('[data-fill="ram"]'), value: root.querySelector('[data-value="ram"]'), track: root.querySelector('[data-track="ram"]') },
+		};
+		const rates = {
+			download: root.querySelector('[data-value="download"]'),
+			upload: root.querySelector('[data-value="upload"]'),
 		};
 
 		let lastSuccess = null;
@@ -95,6 +117,11 @@ const t = T[locale] ?? T.fr;
 			track.dataset.level = percent >= 85 ? 'high' : percent >= 60 ? 'busy' : 'calm';
 		};
 
+		const paintRate = (element, raw) => {
+			const text = typeof raw === 'string' ? raw.trim() : '';
+			element.textContent = text || '—';
+		};
+
 		const showAge = () => {
 			if (lastSuccess === null) return;
 			const seconds = Math.round((Date.now() - lastSuccess) / 1000);
@@ -108,12 +135,16 @@ const t = T[locale] ?? T.fr;
 				const stats = await response.json();
 				paint(fields.load, toPercent(stats.systemLoad));
 				paint(fields.ram, toPercent(stats.ramUsed));
+				paintRate(rates.download, stats.download);
+				paintRate(rates.upload, stats.upload);
 				lastSuccess = Date.now();
 				root.dataset.online = 'true';
 				showAge();
 			} catch {
 				paint(fields.load, null);
 				paint(fields.ram, null);
+				paintRate(rates.download, null);
+				paintRate(rates.upload, null);
 				root.dataset.online = 'false';
 				state.textContent = labels.offline;
 			}
@@ -236,6 +267,32 @@ const t = T[locale] ?? T.fr;
 		background-color: #c2403d;
 	}
 
+	.rates {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.rate {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		color: var(--muted);
+	}
+
+	.arrow {
+		width: 9px;
+		height: 11px;
+		flex-shrink: 0;
+	}
+
+	.rate-value {
+		font-variant-numeric: tabular-nums;
+		font-weight: 600;
+		color: var(--ink);
+		white-space: nowrap;
+	}
+
 	.value {
 		min-width: 40px;
 		font-variant-numeric: tabular-nums;
@@ -254,14 +311,27 @@ const t = T[locale] ?? T.fr;
 			padding: 10px 16px;
 		}
 
+		/* One meter per line: three of them never fit side by side on a phone. */
 		.meters {
+			flex-direction: column;
+			align-items: stretch;
 			width: 100%;
+			gap: 6px;
+		}
+
+		.meter {
 			justify-content: space-between;
-			gap: 16px;
+			gap: 12px;
+		}
+
+		.label {
+			flex: 0 0 auto;
 		}
 
 		.track {
-			width: 72px;
+			flex: 1;
+			width: auto;
 		}
 	}
+
 </style>
