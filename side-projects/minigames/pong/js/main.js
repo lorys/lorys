@@ -214,7 +214,10 @@ function guestSide(conn) {
   };
   return {
     update(now, myX, wantRematch) {
-      if (myX !== sentX && now - sentAt >= SNAPSHOT_MS) {
+      // Also resend if the host's snapshot disagrees: a dropped last update would
+      // otherwise leave the host with a stale paddle until the guest moves again.
+      const hostDisagrees = latest && Math.abs(latest.g - round(myX)) > 1e-4;
+      if ((myX !== sentX || hostDisagrees) && now - sentAt >= SNAPSHOT_MS) {
         conn.send({ t: 'p', x: round(myX) });
         sentX = myX;
         sentAt = now;

@@ -4,6 +4,7 @@ const RTC_CONFIG = { iceServers: [] }; // same LAN only, no STUN/TURN
 const CHANNEL_OPTIONS = { ordered: false, maxRetransmits: 0 };
 const ICE_TIMEOUT_MS = 3000;
 const CONNECT_TIMEOUT_MS = 15000;
+const GUEST_TIMEOUT_MS = 90000;
 const NO_CONNECT = "Couldn't connect. Make sure both phones are on the same Wi-Fi and try again.";
 
 export async function host() {
@@ -22,13 +23,26 @@ export async function host() {
 
 export async function join(offer) {
   const pc = new RTCPeerConnection(RTC_CONFIG);
-  const channel = new Promise((resolve) => (pc.ondatachannel = (e) => resolve(e.channel)));
+  // The host may take a while to scan our answer, so allow longer than the host's timeout.
+  let timer;
+  const channel = new Promise((resolve, reject) => {
+    const giveUp = () => {
+      pc.close();
+      reject(new Error(NO_CONNECT));
+    };
+    pc.ondatachannel = (e) => {
+      clearTimeout(timer);
+      resolve(e.channel);
+    };
+    pc.onconnectionstatechange = () => pc.connectionState === 'failed' && giveUp();
+    timer = setTimeout(giveUp, GUEST_TIMEOUT_MS);
+  });
   await pc.setRemoteDescription(offer);
   await pc.setLocalDescription(await pc.createAnswer());
   await iceGathered(pc);
   return {
     answer: await pack(pc.localDescription),
-    connected: channel.then((ch) => connection(pc, ch, 0)),
+    connected: channel.then((ch) => connection(pc, ch, CONNECT_TIMEOUT_MS)),
   };
 }
 
@@ -107,7 +121,7 @@ export async function pack(desc) {
 }
 
 export async function unpack(code) {
-  const b64 = code.trim().replace(/-/g, '+').replace(/_/g, '/');
+  const b64 = code.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
   const bin = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
   const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
   const json = new TextDecoder().decode(await transform(bytes, new DecompressionStream('deflate-raw')));
