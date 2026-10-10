@@ -8,8 +8,9 @@ export const MALLET_R = 0.065;
 export const GOAL_W = 0.36;
 export const WIN_SCORE = 7;
 
-const MAX_PUCK_SPEED = 3; // units per second
-const MAX_MALLET_SPEED = 5;
+const MAX_PUCK_SPEED = 4; // units per second
+const MAX_MALLET_SPEED = 8;
+const FOLLOW_TIME = 1 / 30; // seconds; matches the guest's update rate
 const FRICTION = 0.3; // fraction of speed lost per second
 const WALL_BOUNCE = 0.9;
 const HIT_BOUNCE = 0.9;
@@ -51,11 +52,20 @@ export function clampMallet(who, x, y) {
   ];
 }
 
-// Sets where the mallet should go; step() moves it there at a capped speed,
-// so a jumpy network input still turns into a smooth, finite-speed hit.
+// Sets where the mallet should go and the steady velocity that gets it there in
+// FOLLOW_TIME. For a finger moving at a steady speed, that velocity settles at
+// the finger's speed, however jumpy the (network) updates are.
 export function setMallet(game, who, x, y) {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-  [game[who].tx, game[who].ty] = clampMallet(who, x, y);
+  const m = game[who];
+  [m.tx, m.ty] = clampMallet(who, x, y);
+  m.vx = (m.tx - m.x) / FOLLOW_TIME;
+  m.vy = (m.ty - m.y) / FOLLOW_TIME;
+  const speed = Math.hypot(m.vx, m.vy);
+  if (speed > MAX_MALLET_SPEED) {
+    m.vx *= MAX_MALLET_SPEED / speed;
+    m.vy *= MAX_MALLET_SPEED / speed;
+  }
 }
 
 export function step(game, dt) {
@@ -73,16 +83,19 @@ export function step(game, dt) {
   }
 }
 
+// Moves at the velocity set by setMallet and stops on reaching the target.
 function moveMallet(m, dt) {
   const dx = m.tx - m.x;
   const dy = m.ty - m.y;
-  const dist = Math.hypot(dx, dy);
-  const reach = MAX_MALLET_SPEED * dt;
-  const k = dist > reach ? reach / dist : 1;
-  m.vx = (dx * k) / dt;
-  m.vy = (dy * k) / dt;
-  m.x += dx * k;
-  m.y += dy * k;
+  if (Math.hypot(m.vx * dt, m.vy * dt) >= Math.hypot(dx, dy)) {
+    m.x = m.tx;
+    m.y = m.ty;
+    m.vx = 0;
+    m.vy = 0;
+    return;
+  }
+  m.x += m.vx * dt;
+  m.y += m.vy * dt;
 }
 
 function movePuck(game, dt) {
@@ -118,8 +131,8 @@ function movePuck(game, dt) {
   }
 }
 
-// The mallet is treated as infinitely heavy: the puck bounces off it and
-// picks up the mallet's velocity.
+// The mallet is treated as infinitely heavy: the puck's outgoing speed comes
+// from the impact speed (puck velocity relative to the mallet along the hit).
 function hit(p, m) {
   const dx = p.x - m.x;
   const dy = p.y - m.y;
