@@ -87,7 +87,7 @@ scanning QR codes.
 
 - **The host is authoritative.** It runs the simulation at a fixed 60 Hz step
   and sends a state snapshot every second tick (30 Hz). Each snapshot holds the
-  ball position and velocity, both paddle positions, the score, the game phase,
+  ball position, both paddle positions, the score, the game phase, both players' rematch flags,
   and a sequence number.
 - **The guest** sends only its paddle x position, at most 30 times per second
   and only when it changes. It moves its own paddle immediately on input and
