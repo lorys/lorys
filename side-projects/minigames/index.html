@@ -95,8 +95,31 @@
       from { left: 38%; top: 17%; }
       to { left: 58%; top: 76%; }
     }
+
+    /* Air hockey preview: rink, goals, two mallets and a puck. */
+    .airhockey .rink { position: absolute; inset: 8% 30%; border: 2px solid #26262f; border-radius: 6px; }
+    .airhockey .rink::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 2px solid #26262f; }
+    .airhockey .goal { position: absolute; left: 50%; width: 14%; height: 2%; transform: translateX(-50%); }
+    .airhockey .goal.top { top: 7%; background: #f87171; }
+    .airhockey .goal.bottom { bottom: 7%; background: var(--accent); }
+    .airhockey .mallet, .airhockey .puck {
+      position: absolute;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .airhockey .mallet { width: 9%; box-shadow: inset 0 0 0 4px currentColor, inset 0 0 0 7px var(--bg); background: currentColor; }
+    .airhockey .mallet.top { left: 44%; top: 24%; color: #f87171; }
+    .airhockey .mallet.bottom { left: 56%; top: 76%; color: var(--accent); }
+    .airhockey .puck { width: 5%; background: var(--fg); animation: shot 1.8s ease-in-out infinite alternate; }
+    @keyframes shot {
+      from { left: 46%; top: 33%; }
+      to { left: 54%; top: 67%; }
+    }
+
     @media (prefers-reduced-motion: reduce) {
       .pong .ball { animation: none; left: 48%; top: 46%; }
+      .airhockey .puck { animation: none; left: 50%; top: 50%; }
     }
   </style>
 </head>
@@ -117,6 +140,23 @@
           <div class="info">
             <h2>Pong</h2>
             <p>Classic Pong, one phone each. Pair by scanning QR codes, first to 7 wins.</p>
+            <div class="tags"><span>2 players</span><span>2 phones</span><span>Same Wi-Fi</span></div>
+          </div>
+        </a>
+      </li>
+      <li>
+        <a class="game" href="airhockey/">
+          <div class="preview airhockey" aria-hidden="true">
+            <div class="rink"></div>
+            <div class="goal top"></div>
+            <div class="mallet top"></div>
+            <div class="puck"></div>
+            <div class="mallet bottom"></div>
+            <div class="goal bottom"></div>
+          </div>
+          <div class="info">
+            <h2>Air Hockey</h2>
+            <p>Slide your mallet, smash the puck into their goal. One phone each, first to 7 wins.</p>
             <div class="tags"><span>2 players</span><span>2 phones</span><span>Same Wi-Fi</span></div>
           </div>
         </a>

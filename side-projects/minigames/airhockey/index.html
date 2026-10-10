@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0b0b10">
+  <title>Air Hockey</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="vendor/qrcode.js"></script>
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <section id="menu" class="screen">
+    <h1>AIR HOCKEY</h1>
+    <p class="hint">Two phones · same Wi-Fi</p>
+    <button id="btn-create">Create game</button>
+    <button id="btn-join" class="secondary">Join game</button>
+  </section>
+
+  <section id="host" class="screen" hidden>
+    <p id="host-status" class="status"></p>
+    <div id="host-offer" class="code-box">
+      <div class="qr"></div>
+      <textarea class="code" rows="3" readonly></textarea>
+      <button class="copy secondary">Copy code</button>
+      <button id="btn-scan-reply">Scan reply</button>
+    </div>
+    <div id="host-reply" class="scan-box" hidden>
+      <video playsinline muted></video>
+      <p class="scan-note"></p>
+      <textarea class="paste" rows="3" placeholder="…or paste the code here"></textarea>
+      <button class="use-paste secondary">Use pasted code</button>
+    </div>
+    <button data-menu class="link">Cancel</button>
+  </section>
+
+  <section id="guest" class="screen" hidden>
+    <p id="guest-status" class="status">Scan the code on the host's phone.</p>
+    <div id="guest-scan" class="scan-box">
+      <video playsinline muted></video>
+      <p class="scan-note"></p>
+      <textarea class="paste" rows="3" placeholder="…or paste the code here"></textarea>
+      <button class="use-paste secondary">Use pasted code</button>
+    </div>
+    <div id="guest-answer" class="code-box" hidden>
+      <div class="qr"></div>
+      <textarea class="code" rows="3" readonly></textarea>
+      <button class="copy secondary">Copy code</button>
+    </div>
+    <button data-menu class="link">Cancel</button>
+  </section>
+
+  <section id="game" class="screen" hidden>
+    <canvas id="canvas"></canvas>
+    <div id="result" class="overlay" hidden>
+      <h2 id="result-title"></h2>
+      <p id="result-note" class="hint"></p>
+      <button id="btn-rematch">Rematch</button>
+      <button data-menu class="link">Menu</button>
+    </div>
+  </section>
+
+  <section id="lost" class="screen" hidden>
+    <h2>Connection lost</h2>
+    <p id="lost-msg" class="hint"></p>
+    <button data-menu>Back to menu</button>
+  </section>
+</body>
+</html>
