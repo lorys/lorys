@@ -521,3 +521,22 @@ test('a preallocated file still being written (same size, new mtime) is not stab
   assert.equal(conversions.status(movie.id), null, 'probed once complete, not while being written');
   assert.ok(await fs.stat(path.join(config.moviesPath, 'Torrent.mp4')));
 });
+
+test('watcher calls onChecked after every check, even when nothing was scanned', async () => {
+  const config = await makeLibrary('checked', [{ id: 'same00same00', file: 'Same.mp4' }]);
+  await fs.writeFile(path.join(config.moviesPath, 'Same.mp4'), 'x');
+  let checked = 0;
+  const watcher = watchMovies(config, {
+    logger: quiet,
+    pollMs: 60_000,
+    scan: async () => assert.fail('nothing changed'),
+    onChecked: () => checked++,
+  });
+  try {
+    await watcher.check();
+    await watcher.check();
+    assert.equal(checked, 2);
+  } finally {
+    watcher.close();
+  }
+});

@@ -1,7 +1,8 @@
 // Keeps MOVIES_INFOS_PATH in sync with MOVIES_PATH: whenever the set of video files
 // differs from what the infos file describes (movie added, removed or renamed),
 // an incremental TMDB scan runs automatically.
-// After a scan, `onScanned` receives the movies it added (they may need a conversion).
+// After a scan, `onScanned` receives the movies it added (they may need a conversion);
+// `onChecked` runs after every check, scan or not (files may have changed in place).
 import fs from 'node:fs';
 import { listVideoFiles, readMoviesInfos, runExclusive, scanMovies } from './scanner.js';
 
@@ -15,7 +16,7 @@ export async function needsScan(config) {
   return files.some((f) => !known.has(f.file));
 }
 
-export function watchMovies(config, { logger = console, pollMs = DEFAULT_POLL_MS, scan = scanMovies, onScanned } = {}) {
+export function watchMovies(config, { logger = console, pollMs = DEFAULT_POLL_MS, scan = scanMovies, onScanned, onChecked } = {}) {
   let running = null;
   let rerun = false;
   let debounce = null;
@@ -43,6 +44,7 @@ export function watchMovies(config, { logger = console, pollMs = DEFAULT_POLL_MS
           logger.error(err, 'Movie scan failed');
         }
       } while (rerun);
+      onChecked?.();
     })();
     try {
       await running;
