@@ -4,7 +4,7 @@
 
 **Goal:** Detect movies browsers can't play, convert them in the background to MP4 (H.264 + AAC) replacing the original file, and show "Conversion en cours (X %)" in the frontend meanwhile.
 
-**Architecture:** A new `src/conversions.js` holds pure planning helpers (ffprobe JSON → plan → ffmpeg args) and a conversion manager (in-memory queue, one ffmpeg at a time, progress from `-progress pipe:1`), built like `src/downloads.js` and created inside `buildApp`. A module-level lock in `src/scanner.js` serialises library changes so the file swap + `movies.json` update never race a scan. The watcher reports newly added movies; `src/index.js` enqueues the library at startup and new movies after each scan. The API exposes the status, the frontend polls it.
+**Architecture:** A new `src/conversions.js` holds pure planning helpers (ffprobe JSON → plan → ffmpeg args) and a conversion manager (in-memory queue, one ffmpeg at a time, progress from `-progress pipe:1`, files already handled tracked in `convert.json`), built like `src/downloads.js` and created inside `buildApp`. A module-level lock in `src/scanner.js` serialises library changes so the file swap + `movies.json` update never race a scan. The watcher reports newly added movies; `src/index.js` enqueues the library at startup and new movies after each scan. The API exposes the status, the frontend polls it.
 
 **Tech Stack:** Node ≥ 22.9 (ESM), Fastify 5, `node:test`, ffmpeg/ffprobe CLI (child processes), vanilla JS frontend.
 
@@ -15,7 +15,6 @@
 - The lock lives in `src/scanner.js` (`runExclusive`) instead of being exposed by the watcher: the manager is created in `buildApp` (like downloads), before the watcher exists, so a shared module-level lock avoids a circular dependency. The watcher wraps its check in it.
 - The watcher's callback is `onScanned(addedMovies)` with only the movies the scan added, so `CONVERT_ON_START=false` really leaves the existing library alone.
 - `parseProgress` becomes `createProgressParser(onSeconds)` to handle chunks split mid-line.
-- A file modified less than 60 s ago isn't converted yet (waits until it settles), so a movie still being copied by hand is never converted and deleted half-written.
 - The converted file gets the original's mtime, so the movie keeps its place in "Ajoutés récemment".
 - A `failed` movie stays playable (the server only refuses `queued`/`converting`); the modal shows the error.
 
@@ -29,6 +28,8 @@
 - Default audio: first track with language `fre`/`fra`/`fr`, else the source's default track, else the first.
 - Text subtitle codecs extracted to `.srt` sidecars: `subrip`, `srt`, `ass`, `ssa`, `mov_text`, `webvtt`, `text`. Bitmap tracks, attachments, data streams and cover images are dropped.
 - One conversion at a time. Temp files start with `.` and end with `.converting`.
+- Stable files only: a file is probed/converted only once its size hasn't changed for 5 s (`stableMs = 5_000`); a file whose mtime is older than 5 s is stable right away.
+- `convert.json` at `path.join(path.dirname(config.moviesInfosPath), 'convert.json')`: `{ "files": { "<relative path>": { size, mtimeMs, converted: boolean, source?, at } } }`; `converted: false` = already compatible. An entry counts only when `size` and `mtimeMs` match the file; failures aren't recorded.
 - Verification before replacing: exactly one `h264` video stream, as many audio streams as planned, duration within 2 s of the source.
 - `CONVERT_ON_START` env var, default `true` (`env.CONVERT_ON_START !== 'false'`).
 - User-facing strings are French: "En attente de conversion", "Conversion en cours (42 %)", "Échec de la conversion", HTTP 409 `{ error: 'Conversion en cours' }`.
@@ -36,7 +37,7 @@
 
 ## Review Focus
 
-1. **File still being written** (copied by hand into `MOVIES_PATH`) — must not be converted (and deleted) until it stopped changing. Test in Task 4 (`waits until the file settles`).
+1. **File still being written** (copied by hand into `MOVIES_PATH`) — must not be probed or converted (and deleted) until its size stopped changing for 5 s. Test in Task 4 (`converts a file only once its size is stable`).
 2. **`Film.mp4` already exists next to `Film.mkv`** — the converted file must not overwrite the other movie. Test in Task 4 (`never overwrites another file`).
 3. **Server stopped mid-conversion** — original intact, no temp file left, and a leftover temp file from a crash is cleaned at startup. Test in Task 4 (`close() kills ffmpeg…`, `cleanup() removes leftovers`).
 4. **Corrupted/unreadable file** — original kept, status `failed`, the queue moves on to the next movie. Test in Task 4 (`a broken file fails…`).
@@ -594,8 +595,10 @@ git commit -m "Run watcher scans under the library lock and report added movies"
 
 **Interfaces:**
 - Consumes: Task 1 helpers; `runExclusive`, `renameMovieEntry` from `src/scanner.js`.
-- Produces: `createConversionManager(config, { logger = console, settleMs = 60_000 } = {})` returning:
-  - `enqueue(movie: { id, file })` → `Promise<void>` (resolves once probed/queued, not once converted)
+- Produces:
+  - `createConversionTracking(filePath, { logger })` → `{ has(file, stat): Promise<boolean>, record(file, stat, { converted, source? }): Promise<void> }` (`convert.json`)
+  - `createConversionManager(config, { logger = console, stableMs = 5_000, probe = ffprobe, trackingPath = <data dir>/convert.json } = {})` returning:
+  - `enqueue(movie: { id, file })` → `Promise<void>` (resolves once the file is stable and probed/queued, not once converted; immediately for files tracked in `convert.json`)
   - `status(id)` → `{ status: 'queued'|'converting'|'failed', percent: number, error: string|null } | null`
   - `list()` → `{ [id]: status(id) }`
   - `isBusy(id)` → `boolean` (`queued` or `converting`)
@@ -631,6 +634,10 @@ async function makeIncompatibleMkv(file, { seconds = 2 } = {}) {
   await fs.rm(srt);
 }
 
+async function makeCompatibleMp4(file) {
+  await run('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=duration=1:size=160x120:rate=25', '-f', 'lavfi', '-i', 'sine=duration=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', file]);
+}
+
 async function probe(file) {
   const { stdout } = await run('ffprobe', ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', file]);
   return JSON.parse(stdout);
@@ -645,7 +652,7 @@ test('converts an incompatible mkv into an mp4 that replaces it', { skip: !hasFf
   const oldTime = new Date('2020-01-02T03:04:05Z');
   await fs.utimes(source, oldTime, oldTime);
 
-  const conversions = createConversionManager(config, { logger: quiet, settleMs: 0 });
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 0 });
   await conversions.enqueue(movie);
   assert.equal(conversions.isBusy(movie.id), true);
   assert.ok(['queued', 'converting'].includes(conversions.status(movie.id).status));
@@ -671,9 +678,9 @@ test('leaves compatible movies alone without ever showing a status', { skip: !ha
   const movie = { id: 'okok00okok00', file: 'Ok.mp4' };
   const config = await makeLibrary('compatible', [movie]);
   const file = path.join(config.moviesPath, 'Ok.mp4');
-  await run('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=duration=1:size=160x120:rate=25', '-f', 'lavfi', '-i', 'sine=duration=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', file]);
+  await makeCompatibleMp4(file);
   const before = await fs.stat(file);
-  const conversions = createConversionManager(config, { logger: quiet, settleMs: 0 });
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 0 });
   await conversions.enqueue(movie);
   assert.equal(conversions.status(movie.id), null);
   await conversions.idle();
@@ -684,7 +691,7 @@ test('enqueue is idempotent', { skip: !hasFfmpeg }, async () => {
   const movie = { id: 'twice0twice0', file: 'Twice.mkv' };
   const config = await makeLibrary('twice', [movie]);
   await makeIncompatibleMkv(path.join(config.moviesPath, 'Twice.mkv'));
-  const conversions = createConversionManager(config, { logger: quiet, settleMs: 0 });
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 0 });
   await Promise.all([conversions.enqueue(movie), conversions.enqueue(movie), conversions.enqueue({ ...movie })]);
   await conversions.idle();
   // Converted twice would leave "Twice (1).mp4" or "Twice.fr.2.srt", or fail on the missing mkv.
@@ -697,7 +704,7 @@ test('never overwrites another file when the mp4 name is taken', { skip: !hasFfm
   const config = await makeLibrary('taken', [movie, { id: 'other0other0', file: 'Film.mp4' }]);
   await makeIncompatibleMkv(path.join(config.moviesPath, 'Film.mkv'));
   await fs.writeFile(path.join(config.moviesPath, 'Film.mp4'), 'another movie');
-  const conversions = createConversionManager(config, { logger: quiet, settleMs: 0 });
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 0 });
   await conversions.enqueue(movie);
   await conversions.idle();
   assert.equal(await fs.readFile(path.join(config.moviesPath, 'Film.mp4'), 'utf8'), 'another movie');
@@ -717,7 +724,7 @@ test('a broken file fails, keeps the original and lets the queue move on', { ski
   await fs.writeFile(path.join(config.moviesPath, 'Garbage.mkv'), 'not a video');
   const garbage = { id: 'garbage00000', file: 'Garbage.mkv' };
 
-  const conversions = createConversionManager(config, { logger: quiet, settleMs: 0 });
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 0 });
   await conversions.enqueue(garbage);
   await conversions.enqueue(broken);
   await conversions.enqueue(good);
@@ -737,23 +744,68 @@ test('a broken file fails, keeps the original and lets the queue move on', { ski
   assert.equal(conversions.status(broken.id).status, 'failed');
 });
 
-test('waits until the file settles before converting it', { skip: !hasFfmpeg }, async () => {
-  const movie = { id: 'settle000000', file: 'Fresh.mkv' };
-  const config = await makeLibrary('settle', [movie]);
-  await makeIncompatibleMkv(path.join(config.moviesPath, 'Fresh.mkv'));
-  const conversions = createConversionManager(config, { logger: quiet, settleMs: 400 });
-  await conversions.enqueue(movie);
+test('converts a file only once its size is stable', { skip: !hasFfmpeg }, async () => {
+  const movie = { id: 'stable000000', file: 'Copie.mkv' };
+  const config = await makeLibrary('stable', [movie]);
+  const complete = path.join(dir, 'stable', 'complete.mkv'); // outside the library
+  await makeIncompatibleMkv(complete, { seconds: 4 });
+  const bytes = await fs.readFile(complete);
+  const target = path.join(config.moviesPath, 'Copie.mkv');
+  // Half copied when the manager first looks at it, complete 150 ms later.
+  await fs.writeFile(target, bytes.subarray(0, bytes.length >> 1));
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 300 });
+  const enqueued = conversions.enqueue(movie);
   await new Promise((r) => setTimeout(r, 150));
-  assert.equal(conversions.status(movie.id).status, 'queued', 'still waiting for the copy to finish');
+  assert.equal(conversions.status(movie.id), null, 'not probed yet');
+  await fs.writeFile(target, bytes);
+  await enqueued;
   await conversions.idle();
-  assert.ok(await fs.stat(path.join(config.moviesPath, 'Fresh.mp4')));
+  const { format } = await probe(path.join(config.moviesPath, 'Copie.mp4'));
+  assert.ok(Math.abs(Number(format.duration) - 4) < 0.5, 'the whole file was converted');
+});
+
+test('convert.json records checked files so they are never probed twice', { skip: !hasFfmpeg }, async () => {
+  const converted = { id: 'track0track0', file: 'Vieux.mkv' };
+  const compatible = { id: 'track1track1', file: 'Ok.mp4' };
+  const config = await makeLibrary('tracking', [converted, compatible]);
+  await makeIncompatibleMkv(path.join(config.moviesPath, 'Vieux.mkv'));
+  await makeCompatibleMp4(path.join(config.moviesPath, 'Ok.mp4'));
+  const first = createConversionManager(config, { logger: quiet, stableMs: 0 });
+  await first.enqueue(converted);
+  await first.enqueue(compatible);
+  await first.idle();
+
+  const { files } = JSON.parse(await fs.readFile(path.join(dir, 'tracking', 'convert.json'), 'utf8'));
+  const stat = await fs.stat(path.join(config.moviesPath, 'Vieux.mp4'));
+  const { at, ...entry } = files['Vieux.mp4'];
+  assert.ok(at);
+  assert.deepEqual(entry, { size: stat.size, mtimeMs: stat.mtimeMs, converted: true, source: 'Vieux.mkv' });
+  assert.equal(files['Ok.mp4'].converted, false);
+  assert.equal(files['Vieux.mkv'], undefined);
+
+  // A new manager (next startup) trusts convert.json…
+  const probed = [];
+  const spy = async (file) => {
+    probed.push(path.basename(file));
+    throw new Error('unexpected probe');
+  };
+  const second = createConversionManager(config, { logger: quiet, stableMs: 0, probe: spy });
+  await second.enqueue({ ...converted, file: 'Vieux.mp4' });
+  await second.enqueue(compatible);
+  assert.deepEqual(probed, []);
+  assert.deepEqual(second.list(), {});
+
+  // …until the file changes.
+  await fs.appendFile(path.join(config.moviesPath, 'Ok.mp4'), 'x');
+  await second.enqueue(compatible);
+  assert.deepEqual(probed, ['Ok.mp4']);
 });
 
 test('close() kills ffmpeg and keeps the original; cleanup() removes leftovers', { skip: !hasFfmpeg }, async () => {
   const movie = { id: 'close0close0', file: 'Long.mkv' };
   const config = await makeLibrary('close', [movie]);
   await makeIncompatibleMkv(path.join(config.moviesPath, 'Long.mkv'), { seconds: 120 });
-  const conversions = createConversionManager(config, { logger: quiet, settleMs: 0 });
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 0 });
   await conversions.enqueue(movie);
   for (let i = 0; i < 500 && conversions.status(movie.id)?.status !== 'converting'; i++) await new Promise((r) => setTimeout(r, 10));
   await conversions.close();
@@ -762,7 +814,7 @@ test('close() kills ffmpeg and keeps the original; cleanup() removes leftovers',
   await fs.mkdir(path.join(config.moviesPath, 'sub'));
   await fs.writeFile(path.join(config.moviesPath, 'sub/.Old.mp4.converting'), 'x');
   await fs.writeFile(path.join(config.moviesPath, '.Old.fr.srt.converting'), 'x');
-  const fresh = createConversionManager(config, { logger: quiet, settleMs: 0 });
+  const fresh = createConversionManager(config, { logger: quiet, stableMs: 0 });
   assert.equal(await fresh.cleanup(), 2);
   assert.deepEqual(await fs.readdir(path.join(config.moviesPath, 'sub')), []);
 });
@@ -830,14 +882,69 @@ function tempPathFor(absolutePath) {
 }
 
 const exists = (p) => fs.access(p).then(() => true, () => false);
+const statKey = (stat) => `${stat.size}-${stat.mtimeMs}`;
 
 /**
- * Converts movies one at a time. `enqueue` probes right away; only movies that need a conversion
- * get a status, which `GET /api/movies` shows to the frontend.
+ * convert.json: files known to play in browsers — converted ones (`converted: true`) and those that
+ * already did (`converted: false`) — with the size and mtime they had, so they're never checked twice.
  */
-export function createConversionManager(config, { logger = console, settleMs = 60_000 } = {}) {
+export function createConversionTracking(filePath, { logger = console } = {}) {
+  let loading = null;
+  let saving = Promise.resolve();
+
+  function load() {
+    loading ??= fs.readFile(filePath, 'utf8').then(
+      (text) => JSON.parse(text).files ?? {},
+      (err) => {
+        if (err.code !== 'ENOENT') logger.warn(`Cannot read ${filePath} (${err.message}), starting from scratch`);
+        return {};
+      },
+    ).catch((err) => {
+      logger.warn(`Cannot parse ${filePath} (${err.message}), starting from scratch`);
+      return {};
+    });
+    return loading;
+  }
+
+  return {
+    /** True when `file` is recorded with this exact size and mtime. */
+    async has(file, stat) {
+      const entry = (await load())[file];
+      return Boolean(entry) && entry.size === stat.size && entry.mtimeMs === stat.mtimeMs;
+    },
+
+    async record(file, stat, { converted, source }) {
+      const files = await load();
+      files[file] = { size: stat.size, mtimeMs: stat.mtimeMs, converted, ...(source ? { source } : {}), at: new Date().toISOString() };
+      saving = saving
+        .then(async () => {
+          await fs.mkdir(path.dirname(filePath), { recursive: true });
+          const tmp = `${filePath}.${process.pid}.tmp`;
+          await fs.writeFile(tmp, JSON.stringify({ files }, null, 2) + '\n');
+          await fs.rename(tmp, filePath);
+        })
+        .catch((err) => logger.warn(`Cannot write ${filePath}: ${err.message}`));
+      return saving;
+    },
+  };
+}
+
+/**
+ * Converts movies one at a time. `enqueue` checks movies right away; only movies that need a
+ * conversion get a status, which `GET /api/movies` shows to the frontend.
+ */
+export function createConversionManager(
+  config,
+  {
+    logger = console,
+    stableMs = 5_000,
+    probe = ffprobe,
+    trackingPath = path.join(path.dirname(config.moviesInfosPath), 'convert.json'),
+  } = {},
+) {
   const { moviesPath } = config;
-  const states = new Map(); // movieId → { id, file, status, percent, error }
+  const tracking = createConversionTracking(trackingPath, { logger });
+  const states = new Map(); // movieId → { id, file, key, status, percent, error }
   const plans = new Map(); // file → { key, plan } (probe cache)
   const queue = [];
   const abort = new AbortController();
@@ -861,37 +968,65 @@ export function createConversionManager(config, { logger = console, settleMs = 6
     return tools;
   }
 
-  async function planFor(file) {
-    const full = path.join(moviesPath, file);
-    const { size, mtimeMs } = await fs.stat(full);
-    const key = `${size}-${mtimeMs}`;
+  /**
+   * Resolves with the file's stat once its size hasn't changed for `stableMs` (still being copied
+   * or downloaded otherwise). A file not modified for that long is stable right away.
+   */
+  async function waitUntilStable(full) {
+    let before = await fs.stat(full);
+    for (;;) {
+      if (Date.now() - before.mtimeMs >= stableMs) return before;
+      await sleep(stableMs, null, { signal: abort.signal });
+      const after = await fs.stat(full);
+      if (after.size === before.size) return after;
+      before = after;
+    }
+  }
+
+  async function planFor(file, stat) {
+    const key = statKey(stat);
     const cached = plans.get(file);
     if (cached?.key === key) return cached.plan;
-    const plan = planConversion(await ffprobe(full, abort.signal), file);
+    const plan = planConversion(await probe(path.join(moviesPath, file), abort.signal), file);
     plans.set(file, { key, plan });
     return plan;
   }
 
-  // Queued/converting movies, and failed ones until the file changes or the server restarts.
-  const handled = (movie) => {
+  // Queued/converting movies, and failed ones until their file changes or the server restarts.
+  const handled = (movie, key) => {
     const state = states.get(movie.id);
-    return Boolean(state) && (state.status !== 'failed' || state.file === movie.file);
+    return Boolean(state) && (state.status !== 'failed' || state.key === key);
   };
 
   async function enqueue(movie) {
-    if (abort.signal.aborted || handled(movie) || !(await checkTools())) return;
+    if (abort.signal.aborted || !(await checkTools())) return;
+    const full = path.join(moviesPath, movie.file);
+    let stat;
+    try {
+      stat = await fs.stat(full);
+      if (handled(movie, statKey(stat)) || (await tracking.has(movie.file, stat))) return;
+      stat = await waitUntilStable(full);
+    } catch {
+      return; // removed meanwhile, or shutting down
+    }
+    const key = statKey(stat);
     let plan;
     try {
-      plan = await planFor(movie.file);
+      plan = await planFor(movie.file, stat);
     } catch (err) {
-      if (abort.signal.aborted || handled(movie)) return;
-      states.set(movie.id, { id: movie.id, file: movie.file, status: 'failed', percent: 0, error: 'Fichier illisible' });
+      if (abort.signal.aborted || handled(movie, key)) return;
+      states.set(movie.id, { id: movie.id, file: movie.file, key, status: 'failed', percent: 0, error: 'Fichier illisible' });
       logger.warn(`Cannot probe "${movie.file}": ${err.message}`);
       return;
     }
-    // Another enqueue of the same movie may have won while we were probing.
-    if (!plan || abort.signal.aborted || handled(movie)) return;
-    states.set(movie.id, { id: movie.id, file: movie.file, status: 'queued', percent: 0, error: null });
+    // Another enqueue of the same movie may have won while we were waiting or probing.
+    if (abort.signal.aborted || handled(movie, key)) return;
+    if (!plan) {
+      states.delete(movie.id); // a previous failure on an older version of the file
+      await tracking.record(movie.file, stat, { converted: false });
+      return;
+    }
+    states.set(movie.id, { id: movie.id, file: movie.file, key, status: 'queued', percent: 0, error: null });
     queue.push(movie.id);
     worker ??= work().finally(() => {
       worker = null;
@@ -918,15 +1053,6 @@ export function createConversionManager(config, { logger = console, settleMs = 6
     }
   }
 
-  /** Don't touch a file that is still being copied into the library. */
-  async function waitUntilSettled(full) {
-    for (;;) {
-      const age = Date.now() - (await fs.stat(full)).mtimeMs;
-      if (age >= settleMs) return;
-      await sleep(settleMs - age, null, { signal: abort.signal });
-    }
-  }
-
   /** `wanted`, or "Name (1).mp4"… when another file already has that name. */
   async function freeName(wanted, source) {
     if (wanted === source || !(await exists(path.join(moviesPath, wanted)))) return wanted;
@@ -939,7 +1065,7 @@ export function createConversionManager(config, { logger = console, settleMs = 6
   }
 
   async function verify(outputPath, plan) {
-    const { streams = [], format } = await ffprobe(outputPath, abort.signal);
+    const { streams = [], format } = await probe(outputPath, abort.signal);
     const videos = streams.filter((s) => s.codec_type === 'video');
     const audios = streams.filter((s) => s.codec_type === 'audio');
     if (videos.length !== 1 || videos[0].codec_name !== 'h264') throw new Error('Piste vidéo invalide après conversion');
@@ -953,10 +1079,11 @@ export function createConversionManager(config, { logger = console, settleMs = 6
   async function convert(state, job) {
     const { zscale } = await checkTools();
     const sourcePath = path.join(moviesPath, state.file);
-    await waitUntilSettled(sourcePath);
-    const plan = await planFor(state.file); // the file may have changed since it was queued
+    // The file may have changed while it was queued.
+    const source = await waitUntilStable(sourcePath);
+    const plan = await planFor(state.file, source);
     if (!plan) return;
-    const source = await fs.stat(sourcePath);
+    state.key = statKey(source);
     state.status = 'converting';
     logger.info(`Converting "${state.file}" (video: ${plan.video}, audio: ${plan.audio.map((a) => a.action).join('/') || 'none'})`);
 
@@ -999,6 +1126,9 @@ export function createConversionManager(config, { logger = console, settleMs = 6
       }
     });
     plans.delete(state.file);
+
+    // 5. Never check this file again (unless it changes).
+    await tracking.record(outputFile, await fs.stat(outputPath), { converted: true, source: state.file });
     logger.info(`Converted "${state.file}" → "${outputFile}"`);
   }
 
@@ -1266,7 +1396,11 @@ RUN apk add --no-cache ffmpeg
 
 ```dockerfile
 # /movies: the video library (mounted read-write: downloads and conversions write into it)
+# /data: movies.json (TMDB cache), accounts.enc (accounts + watch progress), subtitles/ (extracted tracks),
+#        convert.json (files already converted or found compatible)
 ```
+
+(replacing the existing two comment lines above `RUN mkdir -p /movies /data`)
 
 - [ ] **Step 4: Run tests and a smoke start**
 
@@ -1282,7 +1416,7 @@ touch -t 202001010000 "$S/movies/Test.2020.mkv" && \
 (MOVIES_PATH=$S/movies MOVIES_INFOS_PATH=$S/movies.json ACCOUNTS_PATH=$S/a.enc ACCOUNTS_SECRET=x PORT=3999 node src/index.js & PID=$!; sleep 20; kill $PID); ls $S/movies
 ```
 
-(`touch` makes the file look old, otherwise the manager waits 60 s for it to settle.)
+(`touch` makes the file look old, so it's stable right away instead of after the 5 s check.)
 Expected: logs show `Converting "Test.2020.mkv"` then `Converted "Test.2020.mkv" → "Test.2020.mp4"`, and `ls` lists `Test.2020.mp4` only.
 
 - [ ] **Step 5: Commit**
@@ -1522,9 +1656,11 @@ Add a bullet after **Subtitles** in the features list:
   1–3 h per 1080p movie on CPU). HDR is tone-mapped to SDR. Embedded text subtitles are extracted to
   `.srt` files next to the movie first. One conversion at a time; the catalogue shows
   "Conversion en cours (X %)" and the movie can't be played meanwhile. Runs at startup on the whole
-  library (`CONVERT_ON_START=false` to disable) and on every new movie; files modified less than a
-  minute ago wait until they stop changing. A failed conversion keeps the original and is retried at
-  the next start.
+  library (`CONVERT_ON_START=false` to disable) and on every new movie; a file is only converted once
+  its size hasn't changed for 5 s (still being copied otherwise). Converted files, and files found
+  already compatible, are recorded in `convert.json` next to `MOVIES_INFOS_PATH` with their size and
+  date, so they're never checked again unless they change. A failed conversion keeps the original and
+  is retried at the next start.
 ```
 
 In **Notes**, replace "Browsers play mp4 (H.264/AAC) and webm natively; mkv/avi playback depends on the browser and codecs." with:

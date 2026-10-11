@@ -28,7 +28,9 @@ Quality must not visibly degrade.
 | Other streams | Attachments (fonts), data streams and cover images are dropped |
 | Concurrency | One conversion at a time |
 | Playback during conversion | Refused (HTTP 409) while the movie is queued or converting |
-| Failure | The original is kept, the movie is marked `failed`, retried at the next startup |
+| Stable files only | A file is converted only once its size hasn't changed for 5 s (checked before probing and again before converting). A file modified more than 5 s ago is stable right away |
+| Tracking | `convert.json` (next to `MOVIES_INFOS_PATH`) records every converted file, and files found already compatible, with their size and mtime. A file with a matching entry is never probed or converted again |
+| Failure | The original is kept, the movie is marked `failed`; retried at the next startup, or earlier if the file changed |
 
 A file whose plan is empty (already MP4/M4V, H.264 8-bit, only AAC/MP3/Opus audio) isn't touched.
 
@@ -49,10 +51,11 @@ Pure, exported, unit-tested functions:
   when the name is already used (follows the naming read by `src/subtitles.js`).
 
 `createConversionManager(config, { logger, renameMovie })` returns:
-- `enqueue(movie)`: probes the movie (`{ id, file }`) right away (a few ms per file, several probes may run
-  in parallel) and adds it to the conversion queue only if its plan isn't `null` and it isn't already
-  queued or running. Probe results are cached by `file + size + mtime`, so re-enqueuing the whole
-  library after each scan is cheap.
+- `enqueue(movie)`: skips the movie (`{ id, file }`) if `convert.json` has an entry for its file with the
+  same size and mtime, or if it's already queued/running (or failed and unchanged). Otherwise waits until
+  the file is stable (5 s rule), probes it, records it in `convert.json` as compatible when its plan is
+  `null`, or adds it to the conversion queue. Probe results are also cached in memory by
+  `file + size + mtime`.
 - `status(id)` → `{ status: 'queued' | 'converting' | 'failed', percent, error }` or `null`.
 - `list()` → `{ [movieId]: { status, percent, error } }`.
 - `isBusy(id)` → true if queued or converting.
@@ -64,8 +67,8 @@ Only movies that need a conversion ever get a status, so compatible movies never
 
 ### Converting one file
 
-1. Re-check the source (size + mtime) against the probe; re-probe and rebuild the plan if it changed;
-   stop if the plan is now `null`.
+1. Wait until the source is stable again (it may have changed while queued); re-probe and rebuild the plan
+   if size/mtime changed; stop if the plan is now `null`.
 2. Extract each embedded text subtitle track to its sidecar `.srt` (written as a hidden temp file, renamed
    once all tracks succeed).
 3. Run `ffmpeg` to `.<name>.converting.mp4` in the same folder (leading dot: ignored by the scanner's
@@ -75,6 +78,27 @@ Only movies that need a conversion ever get a status, so compatible movies never
 5. Rename the temp file to `<name>.mp4`. If that name is already used by another file, use
    `<name> (1).mp4`, etc. Delete the original if its path differs.
 6. Call `renameMovie(oldFile, newFile)` so `movies.json` keeps the same entry.
+7. Record the new file in `convert.json` (`converted: true`, `source: oldFile`).
+
+### Tracking — `convert.json`
+
+Path: `path.join(path.dirname(MOVIES_INFOS_PATH), 'convert.json')` (the data folder, outside `MOVIES_PATH`).
+
+```json
+{
+  "files": {
+    "d/Film.mp4": { "size": 1234, "mtimeMs": 1577934245000, "converted": true, "source": "d/Film.mkv", "at": "2026-10-11T12:00:00.000Z" },
+    "Ok.mp4": { "size": 999, "mtimeMs": 1577934245000, "converted": false, "at": "2026-10-11T12:00:00.000Z" }
+  }
+}
+```
+
+- Keyed by the file path relative to `MOVIES_PATH`. `converted: false` means the file was already playable.
+- An entry only counts when `size` and `mtimeMs` match the file on disk; otherwise the file is checked again
+  (and its entry overwritten).
+- Written atomically (temp file + rename), writes serialised. Missing or corrupted file = empty (with a
+  warning). Failures aren't recorded.
+- The converted file keeps the original's mtime, and its entry stores the mtime after that change.
 
 On any error: kill ffmpeg if still running, delete the temp file and any extracted sidecar temp files,
 keep the original, set `failed` with the error message (stderr's last line for ffmpeg errors).
@@ -98,7 +122,7 @@ progress (keyed by id) and TMDB data are kept and TMDB isn't queried again.
 
 ### Startup — `src/index.js`
 
-1. `conversions.cleanup()`.
+1. `conversions.cleanup()` (`convert.json` is loaded lazily on the first `enqueue`).
 2. If `CONVERT_ON_START` (default `true`): enqueue every movie from `movies.json`, after the startup scan
    when `SCAN_ON_START` is set.
 3. Pass the watcher's `onScanned` → `enqueue`.
@@ -149,6 +173,9 @@ Unit (no ffmpeg needed):
 - `parseProgress`: `out_time_us`/`out_time` lines, partial chunks.
 - `subtitleSidecarName`: language/forced suffixes and name collisions.
 - `renameMovieEntry`: entry keeps its `id` and other fields.
+- Tracking: `convert.json` gets the converted file (`converted: true`) and compatible files
+  (`converted: false`); a new manager doesn't probe tracked files again, but does once the file changed.
+- Stability: a file whose size changes during the 5 s window isn't probed until it stops changing.
 
 Integration (skipped when ffmpeg isn't installed): generate a 2 s HEVC + AC3 mkv with a French and an
 English audio track and an SRT track (`testsrc`, `sine`); run the manager; check the `.mkv` is gone,
