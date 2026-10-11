@@ -27,6 +27,19 @@ A Netflix-like streaming site for a local movie folder, served with Fastify. No 
   video when `ffmpeg` is installed. SRT files are converted to WebVTT on the fly (UTF-8 or
   Windows-1252); embedded tracks are extracted once and cached in `subtitles/` next to
   `MOVIES_INFOS_PATH`. Image-based tracks (PGS/VobSub) aren't supported.
+- **Conversion**: movies browsers can't play are converted in the background with `ffmpeg` to MP4
+  (H.264 + AAC) and **replace the original file** (`.mkv`/`.avi`… become `.mp4`; watch progress and
+  TMDB data are kept). Containers are remuxed without loss; audio other than AAC/MP3/Opus is
+  re-encoded to AAC (every track kept, French as default, 5.1 kept); video other than 8-bit H.264
+  (HEVC/x265, 10-bit, MPEG-2, Xvid…) is re-encoded to H.264 CRF 18 (visually lossless, slow: roughly
+  1–3 h per 1080p movie on CPU). HDR is tone-mapped to SDR. Embedded text subtitles are extracted to
+  `.srt` files next to the movie first. One conversion at a time; the catalogue shows
+  "Conversion en cours (X %)" and the movie can't be played meanwhile. Runs at startup on the whole
+  library (`CONVERT_ON_START=false` to disable) and on every new movie; a file is only converted once
+  its size hasn't changed for 5 s (still being copied otherwise). Converted files, and files found
+  already compatible, are recorded in `convert.json` next to `MOVIES_INFOS_PATH` with their size and
+  date, so they're never checked again unless they change. A failed conversion keeps the original and
+  is retried at the next start.
 - **Frontend**: categories (recently added, top rated, one row per genre) and a fuzzy search
   based on the Damerau-Levenshtein distance (`public/js/search.js`).
 
@@ -53,7 +66,8 @@ npm start              # http://localhost:3000
 
 ## Notes
 
-- Browsers play mp4 (H.264/AAC) and webm natively; mkv/avi playback depends on the browser and codecs.
+- Browsers play mp4 (H.264/AAC) natively; other files are converted automatically (see **Conversion**),
+  which needs `ffmpeg` and a writable `MOVIES_PATH`. Converted files replace the originals for good.
 - Extracting an embedded subtitle track reads the whole video file, so the first time a track is
   picked on a large mkv it can take a little while before the subtitles appear.
 - Downloads need `MOVIES_PATH` to be writable. Any logged-in user can make the server fetch an
