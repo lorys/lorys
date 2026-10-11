@@ -341,43 +341,45 @@ $('modal-restart').addEventListener('click', () => {
 
 // ---------- Conversions ----------
 
+// Fast while something converts; slow otherwise, to notice conversions queued after the page loaded.
 const CONVERSIONS_POLL_MS = 3000;
+const CONVERSIONS_IDLE_POLL_MS = 30_000;
 let conversionsTimer = null;
 
-/** Polls conversion progress while some movie is waiting or converting. */
 function watchConversions() {
   clearTimeout(conversionsTimer);
-  if (movies.some(isConverting)) conversionsTimer = setTimeout(refreshConversions, CONVERSIONS_POLL_MS);
+  if ($('browse-view').hidden) return; // logged out
+  const delay = movies.some(isConverting) ? CONVERSIONS_POLL_MS : CONVERSIONS_IDLE_POLL_MS;
+  conversionsTimer = setTimeout(refreshConversions, delay);
 }
 
 async function refreshConversions() {
-  let statuses;
   try {
-    statuses = await api('/api/conversions');
-  } catch {
-    return watchConversions();
-  }
-  let finished = false;
-  for (const movie of movies) {
-    const next = statuses[movie.id];
-    if (isConverting(movie) && !next) finished = true;
-    if (next) movie.conversion = next;
-    else delete movie.conversion;
-  }
-  if (finished) {
-    // Converted movies now point to a new file: reload the catalogue.
-    ({ movies } = await api('/api/movies'));
-    if ($('search-input').value.trim()) renderSearch($('search-input').value);
-    else renderRows();
-  } else {
-    for (const card of document.querySelectorAll('.card[data-id]')) {
-      const movie = movies.find((m) => m.id === card.dataset.id);
-      if (movie) renderCardConversion(card, movie);
+    const statuses = await api('/api/conversions');
+    let finished = false;
+    for (const movie of movies) {
+      const next = statuses[movie.id];
+      if (movie.conversion && !next) finished = true;
+      if (next) movie.conversion = next;
+      else delete movie.conversion;
     }
-  }
-  if (!$('modal').hidden && modalMovie) {
-    modalMovie = movies.find((m) => m.id === modalMovie.id) ?? modalMovie;
-    renderModalConversion();
+    if (finished) {
+      // Converted movies now point to a new file: reload the catalogue.
+      ({ movies } = await api('/api/movies'));
+      if ($('search-input').value.trim()) renderSearch($('search-input').value);
+      else renderRows();
+    } else {
+      for (const card of document.querySelectorAll('.card[data-id]')) {
+        const movie = movies.find((m) => m.id === card.dataset.id);
+        if (movie) renderCardConversion(card, movie);
+      }
+    }
+    if (!$('modal').hidden && modalMovie) {
+      modalMovie = movies.find((m) => m.id === modalMovie.id) ?? modalMovie;
+      renderModalConversion();
+    }
+  } catch {
+    // Network hiccup: try again on the next tick.
   }
   watchConversions();
 }

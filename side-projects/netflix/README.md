@@ -39,7 +39,7 @@ A Netflix-like streaming site for a local movie folder, served with Fastify. No 
   its size hasn't changed for 5 s (still being copied otherwise). Converted files, and files found
   already compatible, are recorded in `convert.json` next to `MOVIES_INFOS_PATH` with their size and
   date, so they're never checked again unless they change. A failed conversion keeps the original and
-  is retried at the next start.
+  is retried once the file changes, or at the next start.
 - **Frontend**: categories (recently added, top rated, one row per genre) and a fuzzy search
   based on the Damerau-Levenshtein distance (`public/js/search.js`).
 
