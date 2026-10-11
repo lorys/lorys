@@ -13,7 +13,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { readMoviesInfos, renameMovieEntry, runExclusive } from '../src/scanner.js';
+import { movieId, readMoviesInfos, renameMovieEntry, runExclusive, scanMovies } from '../src/scanner.js';
 import { watchMovies } from '../src/watcher.js';
 
 const h264 = { index: 0, codec_type: 'video', codec_name: 'h264', pix_fmt: 'yuv420p' };
@@ -440,4 +440,21 @@ test('close() kills ffmpeg and keeps the original; cleanup() removes leftovers',
   const fresh = createConversionManager(config, { logger: quiet, stableMs: 0 });
   assert.equal(await fresh.cleanup(), 2);
   assert.deepEqual(await fs.readdir(path.join(config.moviesPath, 'sub')), []);
+});
+
+test('scans keep the id of a converted movie, and never hand it to a file reusing its old name', async () => {
+  // Film.mkv (unmatched on TMDB) was converted to Film.mp4, keeping movieId('Film.mkv') — then a new Film.mkv appears.
+  const config = await makeLibrary('ids', [
+    { id: movieId('Film.mkv'), file: 'Film.mp4', matched: false, title: 'Film', genres: [] },
+  ]);
+  await fs.writeFile(path.join(config.moviesPath, 'Film.mp4'), 'x');
+  await fs.writeFile(path.join(config.moviesPath, 'Film.mkv'), 'x');
+  const noMatch = { searchMovie: async () => null, movieDetails: async () => null };
+
+  await scanMovies(config, { tmdb: noMatch, logger: quiet });
+  await scanMovies(config, { tmdb: noMatch, logger: quiet, force: true });
+  const { movies } = await readMoviesInfos(config.moviesInfosPath);
+  const byFile = Object.fromEntries(movies.map((m) => [m.file, m.id]));
+  assert.equal(byFile['Film.mp4'], movieId('Film.mkv'), 'watch progress stays attached');
+  assert.notEqual(byFile['Film.mkv'], byFile['Film.mp4'], 'ids stay unique');
 });

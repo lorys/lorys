@@ -137,12 +137,21 @@ export async function scanMovies(config, { force = false, logger = console, tmdb
 
   const result = [];
   const toLookUp = [];
+  // Existing entries keep their id (watch progress is keyed by it), even when a conversion renamed the
+  // file; new files get one derived from their path, made unique if a converted movie already holds it.
+  const usedIds = new Set(files.map((f) => known.get(f.file)?.id).filter(Boolean));
+  const newId = (file) => {
+    let id = movieId(file);
+    for (let n = 1; usedIds.has(id); n++) id = movieId(`${file}#${n}`);
+    usedIds.add(id);
+    return id;
+  };
   for (const f of files) {
     const existing = known.get(f.file);
     if (existing && existing.matched && !force) {
       result.push({ ...existing, size: f.size, addedAt: f.addedAt });
     } else {
-      toLookUp.push({ id: movieId(f.file), ...f, parsed: parseMovieFilename(f.file) });
+      toLookUp.push({ id: existing?.id ?? newId(f.file), ...f, parsed: parseMovieFilename(f.file) });
     }
   }
 
