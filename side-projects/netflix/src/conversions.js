@@ -69,7 +69,7 @@ export function ffmpegArgs(plan, inputPath, outputPath, { zscale = false } = {})
   if (plan.video === 'copy') {
     args.push('-c:v', 'copy');
   } else {
-    args.push('-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p');
+    args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-pix_fmt', 'yuv420p');
     if (plan.hdr && zscale) {
       args.push('-vf', TONEMAP_FILTER, '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709');
     }

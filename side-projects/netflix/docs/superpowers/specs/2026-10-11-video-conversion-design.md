@@ -20,7 +20,7 @@ Quality must not visibly degrade.
 | Topic | Decision |
 | --- | --- |
 | Target container | MP4 (`-movflags +faststart`). `.mkv`, `.avi`, `.mov`, `.webm`, `.ogv` become `.mp4` |
-| Video | H.264 8-bit 4:2:0 (`yuv420p`) is copied. Anything else (HEVC, 10-bit H.264, MPEG-2, Xvid, VP9, AV1…) is re-encoded with `libx264 -crf 18 -preset slow -pix_fmt yuv420p`, same resolution and frame rate |
+| Video | H.264 8-bit 4:2:0 (`yuv420p`) is copied. Anything else (HEVC, 10-bit H.264, MPEG-2, Xvid, VP9, AV1…) is re-encoded with `libx264 -crf 18 -preset fast -pix_fmt yuv420p`, same resolution and frame rate |
 | HDR | HDR sources (PQ/HLG transfer) are tone-mapped to SDR BT.709 during re-encoding (`zscale` + `tonemap`). Known limitation: colours differ from an HDR display |
 | Audio | **Every** track is kept. AAC, MP3 and Opus are copied. Others (AC3, E-AC3, DTS, TrueHD, FLAC, PCM, Vorbis…) are re-encoded to AAC: 256 kb/s for ≤ 2 channels, 640 kb/s for more. 5.1 stays 5.1; layouts above 6 channels are downmixed to 5.1 |
 | Default audio | The first French track (`fre`/`fra`/`fr`) is the default; if there is none, the source's default track (or the first one) |

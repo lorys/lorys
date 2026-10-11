@@ -31,8 +31,8 @@ A Netflix-like streaming site for a local movie folder, served with Fastify. No 
   (H.264 + AAC) and **replace the original file** (`.mkv`/`.avi`… become `.mp4`; watch progress and
   TMDB data are kept). Containers are remuxed without loss; audio other than AAC/MP3/Opus is
   re-encoded to AAC (every track kept, French as default, 5.1 kept); video other than 8-bit H.264
-  (HEVC/x265, 10-bit, MPEG-2, Xvid…) is re-encoded to H.264 CRF 18 (visually lossless, slow: roughly
-  1–3 h per 1080p movie on CPU). HDR is tone-mapped to SDR. Embedded text subtitles are extracted to
+  (HEVC/x265, 10-bit, MPEG-2, Xvid…) is re-encoded to H.264 CRF 18 (visually lossless, preset fast: roughly
+  30 min–1.5 h per 1080p movie on CPU). HDR is tone-mapped to SDR. Embedded text subtitles are extracted to
   `.srt` files next to the movie first. One conversion at a time; the catalogue shows
   "Conversion en cours (X %)" and the movie can't be played meanwhile. Runs at startup on the whole
   library (`CONVERT_ON_START=false` to disable) and on every new movie; a file is only converted once

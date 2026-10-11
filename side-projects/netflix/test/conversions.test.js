@@ -120,7 +120,7 @@ test('ffmpegArgs re-encodes video with x264, downmixes and tone-maps HDR when zs
   const args = ffmpegArgs(plan, 'in', 'out', { zscale: true });
   const video = args.slice(args.indexOf('-c:v'), args.indexOf('-c:a:0'));
   assert.deepEqual(video, [
-    '-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p',
+    '-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-pix_fmt', 'yuv420p',
     '-vf', 'zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p',
     '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709',
   ]);
