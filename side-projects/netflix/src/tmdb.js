@@ -28,12 +28,33 @@ export function createTmdbClient(apiKey, { fetchImpl = fetch } = {}) {
       return res.json();
     }
   }
+  
+  function normalizeMovieFilename(name) {
+    return name.replaceAll('1080p', '')
+                .replaceAll('.', ' ')
+                .replaceAll('-', ' ')
+                .replaceAll('_', ' ')
+                .replaceAll('MULTi', '')
+                .replaceAll('VF2', '')
+                .replaceAll('mkv', '')
+                .replaceAll('H264', '')
+                .replaceAll('SUPPLY', '')
+                .replaceAll('wawacity', '')
+                .replaceAll('FEEDBACK', '')
+                .replaceAll('WEBRIP', '')
+                .replaceAll('AMZ', '')
+                .replaceAll('HDR10', '')
+                .replaceAll('x265', '')
+                .replaceAll('EAC3', '');
+  }
 
   return {
     async searchMovie(title, year) {
-      let data = await get('/search/movie', { query: title, year: year ?? undefined, include_adult: false });
+
+      
+      let data = await get('/search/movie', { query: normalizeMovieFilename(title), year: year ?? undefined, include_adult: false });
       // The year in filenames is sometimes off by one (festival vs release date): retry without it.
-      if (!data.results?.length && year) data = await get('/search/movie', { query: title, include_adult: false });
+      if (!data.results?.length && year) data = await get('/search/movie', { query: normalizeMovieFilename(title), include_adult: false });
       return data.results?.[0] ?? null;
     },
     movieDetails(id) {
