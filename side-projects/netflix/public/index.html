@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cinéflix</title>
+    <link rel="stylesheet" href="/css/style.css" />
+    <script type="module" src="/js/app.js"></script>
+  </head>
+  <body>
+    <!-- Login -->
+    <main id="login-view" class="login" hidden>
+      <div class="brand brand--large">CINÉFLIX</div>
+      <form id="login-form" class="login__card">
+        <h1>S'identifier</h1>
+        <input name="username" placeholder="Nom d'utilisateur" autocomplete="username" required />
+        <input name="password" type="password" placeholder="Mot de passe" autocomplete="current-password" required />
+        <p id="login-error" class="login__error" hidden></p>
+        <button type="submit" class="btn btn--primary">S'identifier</button>
+      </form>
+    </main>
+
+    <!-- Catalogue -->
+    <div id="browse-view" hidden>
+      <header class="topbar" id="topbar">
+        <a class="brand" href="#" id="home-link">CINÉFLIX</a>
+        <div class="topbar__right">
+          <label class="search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2a8 8 0 0 1 6.32 12.9l5.39 5.4-1.41 1.4-5.4-5.39A8 8 0 1 1 10 2zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12z" /></svg>
+            <input id="search-input" type="search" placeholder="Titres, films…" autocomplete="off" />
+          </label>
+          <span id="username" class="topbar__user"></span>
+          <button id="logout-btn" class="btn btn--ghost">Déconnexion</button>
+        </div>
+      </header>
+
+      <section id="hero" class="hero"></section>
+      <section id="rows" class="rows"></section>
+
+      <section id="search-results" class="search-results" hidden>
+        <h2 id="search-title"></h2>
+        <div id="search-grid" class="grid"></div>
+      </section>
+
+      <p id="empty" class="empty" hidden></p>
+    </div>
+
+    <!-- Movie details -->
+    <div id="modal" class="modal" hidden>
+      <div class="modal__backdrop" data-close></div>
+      <article class="modal__card" role="dialog" aria-modal="true">
+        <button class="modal__close" data-close aria-label="Fermer">✕</button>
+        <div class="modal__hero" id="modal-hero">
+          <div class="modal__hero-content">
+            <h2 id="modal-title"></h2>
+            <div class="modal__actions">
+              <button class="btn btn--play" id="modal-play">▶ Lecture</button>
+              <button class="btn btn--secondary" id="modal-restart" hidden>↺ Recommencer</button>
+            </div>
+            <div class="modal__progress" id="modal-progress" hidden>
+              <div class="progress"><span id="modal-progress-bar"></span></div>
+              <span id="modal-remaining"></span>
+            </div>
+          </div>
+        </div>
+        <div class="modal__body">
+          <div>
+            <p class="meta" id="modal-meta"></p>
+            <p class="tagline" id="modal-tagline"></p>
+            <p id="modal-overview"></p>
+          </div>
+          <dl class="modal__credits" id="modal-credits"></dl>
+        </div>
+      </article>
+    </div>
+
+    <!-- Player -->
+    <div id="player" class="player" hidden>
+      <button class="player__back" id="player-back" aria-label="Retour">← Retour</button>
+      <video id="video" controls playsinline></video>
+    </div>
+
+    <template id="card-template">
+      <button class="card">
+        <img class="card__img" loading="lazy" alt="" />
+        <span class="card__fallback"></span>
+        <span class="progress card__progress" hidden><span></span></span>
+      </button>
+    </template>
+  </body>
+</html>
