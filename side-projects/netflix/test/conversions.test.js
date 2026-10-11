@@ -11,6 +11,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { readMoviesInfos, renameMovieEntry, runExclusive } from '../src/scanner.js';
+import { watchMovies } from '../src/watcher.js';
 
 const h264 = { index: 0, codec_type: 'video', codec_name: 'h264', pix_fmt: 'yuv420p' };
 const aac = (index, extra = {}) => ({ index, codec_type: 'audio', codec_name: 'aac', channels: 2, ...extra });
@@ -196,4 +197,35 @@ test('renameMovieEntry keeps the id and metadata of the movie', async () => {
   assert.deepEqual(movies[0], { id: 'abc123abc123', file: 'd/Film.mp4', size: 42, title: 'Film', matched: true });
   assert.equal(movies[1].file, 'Autre.mp4');
   assert.equal(await renameMovieEntry(config, 'nope.mkv', 'nope.mp4'), false);
+});
+
+test('watcher scans under the library lock and reports added movies', async () => {
+  const config = await makeLibrary('watch', [{ id: 'old000old000', file: 'Ancien.mp4' }]);
+  await fs.writeFile(path.join(config.moviesPath, 'Ancien.mp4'), 'x');
+  await fs.writeFile(path.join(config.moviesPath, 'Nouveau.mkv'), 'x');
+
+  const events = [];
+  const fakeScan = async () => {
+    events.push('scan:start');
+    await new Promise((r) => setTimeout(r, 30));
+    await fs.writeFile(
+      config.moviesInfosPath,
+      JSON.stringify({ movies: [{ id: 'old000old000', file: 'Ancien.mp4' }, { id: 'new000new000', file: 'Nouveau.mkv' }] }),
+    );
+    events.push('scan:end');
+    return {};
+  };
+  const added = [];
+  const quiet = { info() {}, warn() {}, error() {} };
+  const watcher = watchMovies(config, { logger: quiet, pollMs: 60_000, scan: fakeScan, onScanned: (m) => added.push(...m) });
+  try {
+    const checking = watcher.check();
+    await new Promise((r) => setTimeout(r, 5));
+    await runExclusive(() => events.push('exclusive'));
+    await checking;
+    assert.deepEqual(events, ['scan:start', 'scan:end', 'exclusive']);
+    assert.deepEqual(added.map((m) => m.id), ['new000new000']);
+  } finally {
+    watcher.close();
+  }
 });
