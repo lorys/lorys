@@ -15,5 +15,6 @@ export function loadConfig(env = process.env) {
     host: env.HOST || '0.0.0.0',
     port: Number(env.PORT || 3000),
     scanOnStart: env.SCAN_ON_START !== 'false',
+    convertOnStart: env.CONVERT_ON_START !== 'false',
   };
 }

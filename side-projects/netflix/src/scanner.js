@@ -50,6 +50,29 @@ async function writeMoviesInfos(filePath, infos) {
   await fs.rename(tmp, filePath);
 }
 
+let libraryLock = Promise.resolve();
+
+/**
+ * Serialises changes to MOVIES_PATH / MOVIES_INFOS_PATH within the server (scans, converted files
+ * replacing originals), so a scan never sees a file swap half done.
+ */
+export function runExclusive(fn) {
+  const result = libraryLock.then(fn);
+  libraryLock = result.catch(() => {});
+  return result;
+}
+
+/** Point the entry of `oldFile` to `newFile`, keeping its id (watch progress) and TMDB data. */
+export async function renameMovieEntry(config, oldFile, newFile) {
+  const infos = await readMoviesInfos(config.moviesInfosPath);
+  const movie = infos.movies.find((m) => m.file === oldFile);
+  if (!movie) return false;
+  movie.file = newFile;
+  movie.size = (await fs.stat(path.join(config.moviesPath, newFile))).size;
+  await writeMoviesInfos(config.moviesInfosPath, infos);
+  return true;
+}
+
 function toMovieInfo(base, details) {
   const director = details.credits?.crew?.find((c) => c.job === 'Director')?.name ?? null;
   return {
@@ -114,12 +137,21 @@ export async function scanMovies(config, { force = false, logger = console, tmdb
 
   const result = [];
   const toLookUp = [];
+  // Existing entries keep their id (watch progress is keyed by it), even when a conversion renamed the
+  // file; new files get one derived from their path, made unique if a converted movie already holds it.
+  const usedIds = new Set(files.map((f) => known.get(f.file)?.id).filter(Boolean));
+  const newId = (file) => {
+    let id = movieId(file);
+    for (let n = 1; usedIds.has(id); n++) id = movieId(`${file}#${n}`);
+    usedIds.add(id);
+    return id;
+  };
   for (const f of files) {
     const existing = known.get(f.file);
     if (existing && existing.matched && !force) {
       result.push({ ...existing, size: f.size, addedAt: f.addedAt });
     } else {
-      toLookUp.push({ id: movieId(f.file), ...f, parsed: parseMovieFilename(f.file) });
+      toLookUp.push({ id: existing?.id ?? newId(f.file), ...f, parsed: parseMovieFilename(f.file) });
     }
   }
 

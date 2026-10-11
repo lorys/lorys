@@ -36,6 +36,7 @@ async function showBrowse(username) {
   $('username').textContent = username;
   [{ movies }, progress] = await Promise.all([api('/api/movies'), api('/api/progress')]);
   renderHome();
+  watchConversions();
 }
 
 $('login-form').addEventListener('submit', async (event) => {
@@ -59,6 +60,7 @@ $('logout-btn').addEventListener('click', async () => {
   await api('/api/logout', { method: 'POST' });
   movies = [];
   progress = {};
+  clearTimeout(conversionsTimer);
   showLogin();
 });
 
@@ -82,6 +84,25 @@ function formatRemaining(entry) {
 
 function progressPercent(entry) {
   return `${Math.min(100, (entry.position / entry.duration) * 100)}%`;
+}
+
+const isConverting = (movie) => ['queued', 'converting'].includes(movie.conversion?.status);
+
+function conversionLabel(conversion) {
+  if (conversion.status === 'queued') return 'En attente de conversion';
+  if (conversion.status === 'converting') return `Conversion en cours (${conversion.percent} %)`;
+  return 'Échec de la conversion';
+}
+
+function renderCardConversion(card, movie) {
+  const overlay = card.querySelector('.card__conversion');
+  const { conversion } = movie;
+  overlay.hidden = !conversion;
+  card.classList.toggle('card--failed', conversion?.status === 'failed');
+  if (!conversion) return;
+  overlay.querySelector('.card__conversion-text').textContent = conversionLabel(conversion);
+  overlay.querySelector('.progress > span').style.width = `${conversion.percent}%`;
+  card.title = `${movie.title} — ${conversionLabel(conversion)}`;
 }
 
 function buildCategories() {
@@ -138,6 +159,8 @@ function createCard(movie, { backdrop = false } = {}) {
     bar.firstElementChild.style.width = progressPercent(entry);
     card.title = `${movie.title} — ${formatRemaining(entry)}`;
   }
+  card.dataset.id = movie.id;
+  renderCardConversion(card, movie);
   card.addEventListener('click', () => openModal(movie));
   return card;
 }
@@ -145,7 +168,7 @@ function createCard(movie, { backdrop = false } = {}) {
 function renderHero() {
   const hero = $('hero');
   hero.replaceChildren();
-  const candidates = movies.filter((m) => m.backdropPath && m.overview);
+  const candidates = movies.filter((m) => m.backdropPath && m.overview && !isConverting(m));
   const pick = candidates[Math.floor(Math.random() * candidates.length)];
   if (!pick) {
     hero.hidden = true;
@@ -263,6 +286,7 @@ function openModal(movie) {
     $('modal-progress-bar').style.width = progressPercent(entry);
     $('modal-remaining').textContent = formatRemaining(entry);
   }
+  renderModalConversion();
 
   const credits = $('modal-credits');
   credits.replaceChildren();
@@ -283,6 +307,21 @@ function openModal(movie) {
   document.body.classList.add('no-scroll');
 }
 
+function renderModalConversion() {
+  const movie = modalMovie;
+  const busy = isConverting(movie);
+  const label = $('modal-conversion');
+  $('modal-play').disabled = busy;
+  $('modal-restart').disabled = busy;
+  label.hidden = !movie.conversion;
+  label.classList.toggle('modal__conversion--failed', movie.conversion?.status === 'failed');
+  if (movie.conversion) {
+    label.textContent = movie.conversion.status === 'failed' && movie.conversion.error
+      ? `${conversionLabel(movie.conversion)} : ${movie.conversion.error}`
+      : conversionLabel(movie.conversion);
+  }
+}
+
 function closeModal() {
   $('modal').hidden = true;
   document.body.classList.remove('no-scroll');
@@ -299,6 +338,51 @@ $('modal-restart').addEventListener('click', () => {
   closeModal();
   playMovie(modalMovie, { restart: true });
 });
+
+// ---------- Conversions ----------
+
+// Fast while something converts; slow otherwise, to notice conversions queued after the page loaded.
+const CONVERSIONS_POLL_MS = 3000;
+const CONVERSIONS_IDLE_POLL_MS = 30_000;
+let conversionsTimer = null;
+
+function watchConversions() {
+  clearTimeout(conversionsTimer);
+  if ($('browse-view').hidden) return; // logged out
+  const delay = movies.some(isConverting) ? CONVERSIONS_POLL_MS : CONVERSIONS_IDLE_POLL_MS;
+  conversionsTimer = setTimeout(refreshConversions, delay);
+}
+
+async function refreshConversions() {
+  try {
+    const statuses = await api('/api/conversions');
+    let finished = false;
+    for (const movie of movies) {
+      const next = statuses[movie.id];
+      if (movie.conversion && !next) finished = true;
+      if (next) movie.conversion = next;
+      else delete movie.conversion;
+    }
+    if (finished) {
+      // Converted movies now point to a new file: reload the catalogue.
+      ({ movies } = await api('/api/movies'));
+      if ($('search-input').value.trim()) renderSearch($('search-input').value);
+      else renderRows();
+    } else {
+      for (const card of document.querySelectorAll('.card[data-id]')) {
+        const movie = movies.find((m) => m.id === card.dataset.id);
+        if (movie) renderCardConversion(card, movie);
+      }
+    }
+    if (!$('modal').hidden && modalMovie) {
+      modalMovie = movies.find((m) => m.id === modalMovie.id) ?? modalMovie;
+      renderModalConversion();
+    }
+  } catch {
+    // Network hiccup: try again on the next tick.
+  }
+  watchConversions();
+}
 
 // ---------- Downloads ----------
 
@@ -473,6 +557,7 @@ function stopAutoSave() {
 }
 
 async function playMovie(movie, { restart = false } = {}) {
+  if (isConverting(movie)) return;
   playing = movie;
   let startAt = 0;
   if (restart) {

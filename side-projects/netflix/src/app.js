@@ -8,6 +8,7 @@ import fastifyStatic from '@fastify/static';
 import { authenticate, createAccountsStore } from './accounts.js';
 import { createSessionToken, readSessionToken, SESSION_COOKIE, SESSION_TTL_MS } from './session.js';
 import { readMoviesInfos } from './scanner.js';
+import { createConversionManager } from './conversions.js';
 import { createDownloadManager } from './downloads.js';
 import { createSubtitlesService } from './subtitles.js';
 
@@ -64,13 +65,16 @@ export function parseRange(header, size) {
   return { start, end };
 }
 
-export function buildApp(config, { logger = true } = {}) {
+export function buildApp(config, { logger = true, conversions } = {}) {
   const app = Fastify({ logger });
   const getInfos = createInfosCache(config.moviesInfosPath);
   const accounts = createAccountsStore(config.accountsPath, config.accountsSecret);
   const downloads = createDownloadManager(config.moviesPath, { logger: app.log });
+  conversions ??= createConversionManager(config, { logger: app.log });
+  app.decorate('conversions', conversions);
   const subtitles = createSubtitlesService(config.moviesPath, path.join(path.dirname(config.moviesInfosPath), 'subtitles'));
   app.addHook('onClose', () => downloads.close());
+  app.addHook('onClose', () => conversions.close());
 
   app.register(fastifyCookie);
   app.register(fastifyStatic, { root: PUBLIC_DIR });
@@ -116,8 +120,16 @@ export function buildApp(config, { logger = true } = {}) {
   app.get('/api/movies', { preHandler: requireUser }, async () => {
     const { updatedAt, movies } = await getInfos();
     // `parsed` and `size` are scanner internals; the frontend doesn't need them.
-    return { updatedAt, movies: movies.map(({ parsed, size, ...movie }) => movie) };
+    return {
+      updatedAt,
+      movies: movies.map(({ parsed, size, ...movie }) => {
+        const conversion = conversions.status(movie.id);
+        return conversion ? { ...movie, conversion } : movie;
+      }),
+    };
   });
+
+  app.get('/api/conversions', { preHandler: requireUser }, async () => conversions.list());
 
   // ---------- Watch progress (stored per account in ACCOUNTS_PATH) ----------
 
@@ -232,6 +244,8 @@ export function buildApp(config, { logger = true } = {}) {
     const { movies } = await getInfos();
     const movie = movies.find((m) => m.id === request.params.id);
     if (!movie) return reply.code(404).send({ error: 'Film introuvable' });
+    // The file is about to be replaced: don't serve it.
+    if (conversions.isBusy(movie.id)) return reply.code(409).send({ error: 'Conversion en cours' });
 
     // Only paths listed in the infos file are served, and they must stay inside MOVIES_PATH.
     const filePath = path.resolve(config.moviesPath, movie.file);

@@ -17,6 +17,7 @@ import { parseMovieFilename } from '../src/filename.js';
 import { readMoviesInfos, scanMovies } from '../src/scanner.js';
 import { needsScan } from '../src/watcher.js';
 import { buildApp, isFinished, parseRange } from '../src/app.js';
+import { loadConfig } from '../src/config.js';
 import { pickFilename } from '../src/downloads.js';
 
 test('accounts round-trip through encryption and reject a wrong secret', () => {
@@ -332,4 +333,45 @@ test('HTTP API: downloads a movie into MOVIES_PATH with progress', async () => {
     await fs.rm(path.join(config.moviesPath, 'Telecharge.2020.mp4'), { force: true });
     await fs.rm(path.join(config.moviesPath, 'Telecharge.2020 (1).mp4'), { force: true });
   }
+});
+
+test('HTTP API: conversion status and blocked streaming', async () => {
+  const statuses = new Map();
+  const fakeConversions = {
+    status: (id) => statuses.get(id) ?? null,
+    list: () => Object.fromEntries(statuses),
+    isBusy: (id) => ['queued', 'converting'].includes(statuses.get(id)?.status),
+    close: async () => {},
+  };
+  const app = buildApp(config, { logger: false, conversions: fakeConversions });
+  try {
+    assert.equal((await app.inject('/api/conversions')).statusCode, 401);
+    const login = await app.inject({ method: 'POST', url: '/api/login', payload: { username: 'lorys', password: 'pw' } });
+    const cookies = { session: login.cookies.find((c) => c.name === 'session').value };
+    const { movies } = (await app.inject({ url: '/api/movies', cookies })).json();
+    const amelie = movies.find((m) => m.file === 'Amelie.2001.mp4');
+    assert.equal(amelie.conversion, undefined);
+
+    statuses.set(amelie.id, { status: 'converting', percent: 42, error: null });
+    const listed = (await app.inject({ url: '/api/movies', cookies })).json().movies.find((m) => m.id === amelie.id);
+    assert.deepEqual(listed.conversion, { status: 'converting', percent: 42, error: null });
+    assert.deepEqual((await app.inject({ url: '/api/conversions', cookies })).json(), {
+      [amelie.id]: { status: 'converting', percent: 42, error: null },
+    });
+    const blocked = await app.inject({ url: `/api/movies/${amelie.id}/stream`, cookies });
+    assert.equal(blocked.statusCode, 409);
+    assert.equal(blocked.json().error, 'Conversion en cours');
+
+    // A failed conversion leaves the original playable.
+    statuses.set(amelie.id, { status: 'failed', percent: 0, error: 'boom' });
+    assert.equal((await app.inject({ url: `/api/movies/${amelie.id}/stream`, cookies })).statusCode, 200);
+  } finally {
+    await app.close();
+  }
+});
+
+test('loadConfig reads CONVERT_ON_START (default true)', () => {
+  const env = { MOVIES_PATH: '/m', MOVIES_INFOS_PATH: '/i.json', ACCOUNTS_PATH: '/a', ACCOUNTS_SECRET: 's' };
+  assert.equal(loadConfig(env).convertOnStart, true);
+  assert.equal(loadConfig({ ...env, CONVERT_ON_START: 'false' }).convertOnStart, false);
 });

@@ -1,8 +1,10 @@
 // Keeps MOVIES_INFOS_PATH in sync with MOVIES_PATH: whenever the set of video files
 // differs from what the infos file describes (movie added, removed or renamed),
 // an incremental TMDB scan runs automatically.
+// After a scan, `onScanned` receives the movies it added (they may need a conversion);
+// `onChecked` runs after every check, scan or not (files may have changed in place).
 import fs from 'node:fs';
-import { listVideoFiles, readMoviesInfos, scanMovies } from './scanner.js';
+import { listVideoFiles, readMoviesInfos, runExclusive, scanMovies } from './scanner.js';
 
 const DEBOUNCE_MS = 5_000;
 const DEFAULT_POLL_MS = 60_000;
@@ -14,7 +16,7 @@ export async function needsScan(config) {
   return files.some((f) => !known.has(f.file));
 }
 
-export function watchMovies(config, { logger = console, pollMs = DEFAULT_POLL_MS, scan = scanMovies } = {}) {
+export function watchMovies(config, { logger = console, pollMs = DEFAULT_POLL_MS, scan = scanMovies, onScanned, onChecked } = {}) {
   let running = null;
   let rerun = false;
   let debounce = null;
@@ -28,15 +30,21 @@ export function watchMovies(config, { logger = console, pollMs = DEFAULT_POLL_MS
       do {
         rerun = false;
         try {
-          if (await needsScan(config)) {
+          // Under the library lock: a conversion never swaps a file while we list or scan.
+          const added = await runExclusive(async () => {
+            if (!(await needsScan(config))) return [];
+            const before = new Set((await readMoviesInfos(config.moviesInfosPath)).movies.map((m) => m.file));
             logger.info('Movie library changed, scanning TMDB…');
             const stats = await scan(config, { logger });
             logger.info(stats, 'Movie scan finished');
-          }
+            return (await readMoviesInfos(config.moviesInfosPath)).movies.filter((m) => !before.has(m.file));
+          });
+          if (added.length) onScanned?.(added);
         } catch (err) {
           logger.error(err, 'Movie scan failed');
         }
       } while (rerun);
+      onChecked?.();
     })();
     try {
       await running;
