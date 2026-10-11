@@ -17,6 +17,7 @@ import { parseMovieFilename } from '../src/filename.js';
 import { readMoviesInfos, scanMovies } from '../src/scanner.js';
 import { needsScan } from '../src/watcher.js';
 import { buildApp, isFinished, parseRange } from '../src/app.js';
+import { loadConfig } from '../src/config.js';
 import { pickFilename } from '../src/downloads.js';
 
 test('accounts round-trip through encryption and reject a wrong secret', () => {
@@ -367,4 +368,10 @@ test('HTTP API: conversion status and blocked streaming', async () => {
   } finally {
     await app.close();
   }
+});
+
+test('loadConfig reads CONVERT_ON_START (default true)', () => {
+  const env = { MOVIES_PATH: '/m', MOVIES_INFOS_PATH: '/i.json', ACCOUNTS_PATH: '/a', ACCOUNTS_SECRET: 's' };
+  assert.equal(loadConfig(env).convertOnStart, true);
+  assert.equal(loadConfig({ ...env, CONVERT_ON_START: 'false' }).convertOnStart, false);
 });

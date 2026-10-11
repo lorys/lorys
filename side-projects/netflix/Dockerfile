@@ -1,6 +1,6 @@
 FROM node:22-alpine
 
-# ffmpeg reads the subtitle tracks embedded in mkv/mp4 files.
+# ffmpeg reads the subtitle tracks embedded in mkv/mp4 files and converts movies browsers can't play.
 RUN apk add --no-cache ffmpeg
 
 WORKDIR /app
@@ -12,8 +12,9 @@ COPY src ./src
 COPY bin ./bin
 COPY public ./public
 
-# /movies: the video library (mounted read-only)
-# /data: movies.json (TMDB cache), accounts.enc (accounts + watch progress), subtitles/ (extracted tracks)
+# /movies: the video library (mounted read-write: downloads and conversions write into it)
+# /data: movies.json (TMDB cache), accounts.enc (accounts + watch progress), subtitles/ (extracted tracks),
+#        convert.json (files already converted or found compatible)
 RUN mkdir -p /movies /data && chown node:node /data
 VOLUME ["/data"]
 
