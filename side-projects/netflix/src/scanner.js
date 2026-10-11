@@ -50,6 +50,29 @@ async function writeMoviesInfos(filePath, infos) {
   await fs.rename(tmp, filePath);
 }
 
+let libraryLock = Promise.resolve();
+
+/**
+ * Serialises changes to MOVIES_PATH / MOVIES_INFOS_PATH within the server (scans, converted files
+ * replacing originals), so a scan never sees a file swap half done.
+ */
+export function runExclusive(fn) {
+  const result = libraryLock.then(fn);
+  libraryLock = result.catch(() => {});
+  return result;
+}
+
+/** Point the entry of `oldFile` to `newFile`, keeping its id (watch progress) and TMDB data. */
+export async function renameMovieEntry(config, oldFile, newFile) {
+  const infos = await readMoviesInfos(config.moviesInfosPath);
+  const movie = infos.movies.find((m) => m.file === oldFile);
+  if (!movie) return false;
+  movie.file = newFile;
+  movie.size = (await fs.stat(path.join(config.moviesPath, newFile))).size;
+  await writeMoviesInfos(config.moviesInfosPath, infos);
+  return true;
+}
+
 function toMovieInfo(base, details) {
   const director = details.credits?.crew?.find((c) => c.job === 'Director')?.name ?? null;
   return {

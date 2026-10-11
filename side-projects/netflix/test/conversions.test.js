@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createProgressParser,
@@ -7,6 +7,10 @@ import {
   subtitleArgs,
   subtitleSidecarName,
 } from '../src/conversions.js';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { readMoviesInfos, renameMovieEntry, runExclusive } from '../src/scanner.js';
 
 const h264 = { index: 0, codec_type: 'video', codec_name: 'h264', pix_fmt: 'yuv420p' };
 const aac = (index, extra = {}) => ({ index, codec_type: 'audio', codec_name: 'aac', channels: 2, ...extra });
@@ -144,4 +148,52 @@ test('subtitleSidecarName follows the naming read by the subtitle service', () =
   assert.equal(subtitleSidecarName('d/Film.mp4', { lang: 'fra', forced: false }, taken), 'd/Film.fr.2.srt');
   assert.equal(subtitleSidecarName('Film.mp4', { lang: null, forced: false }, new Set()), 'Film.srt');
   assert.equal(subtitleSidecarName('Film.mp4', { lang: 'xyz', forced: false }, new Set()), 'Film.xyz.srt');
+});
+
+let dir;
+before(async () => {
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cineflix-conv-'));
+});
+after(async () => {
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+/** A fresh library folder + infos file for one test. */
+async function makeLibrary(name, movies = []) {
+  const config = { moviesPath: path.join(dir, name, 'movies'), moviesInfosPath: path.join(dir, name, 'movies.json') };
+  await fs.mkdir(config.moviesPath, { recursive: true });
+  await fs.writeFile(config.moviesInfosPath, JSON.stringify({ updatedAt: null, movies }));
+  return config;
+}
+
+test('runExclusive runs callbacks one after the other, even after a failure', async () => {
+  const order = [];
+  const slow = runExclusive(async () => {
+    await new Promise((r) => setTimeout(r, 30));
+    order.push('slow');
+  });
+  const failing = runExclusive(async () => {
+    order.push('failing');
+    throw new Error('boom');
+  });
+  const last = runExclusive(() => order.push('last'));
+  await slow;
+  await assert.rejects(failing, /boom/);
+  await last;
+  assert.deepEqual(order, ['slow', 'failing', 'last']);
+});
+
+test('renameMovieEntry keeps the id and metadata of the movie', async () => {
+  const config = await makeLibrary('rename', [
+    { id: 'abc123abc123', file: 'd/Film.mkv', size: 10, title: 'Film', matched: true },
+    { id: 'other0other0', file: 'Autre.mp4', size: 5, title: 'Autre', matched: true },
+  ]);
+  await fs.mkdir(path.join(config.moviesPath, 'd'));
+  await fs.writeFile(path.join(config.moviesPath, 'd/Film.mp4'), 'x'.repeat(42));
+
+  assert.equal(await renameMovieEntry(config, 'd/Film.mkv', 'd/Film.mp4'), true);
+  const { movies } = await readMoviesInfos(config.moviesInfosPath);
+  assert.deepEqual(movies[0], { id: 'abc123abc123', file: 'd/Film.mp4', size: 42, title: 'Film', matched: true });
+  assert.equal(movies[1].file, 'Autre.mp4');
+  assert.equal(await renameMovieEntry(config, 'nope.mkv', 'nope.mp4'), false);
 });
