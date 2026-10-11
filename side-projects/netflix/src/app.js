@@ -9,6 +9,7 @@ import { authenticate, createAccountsStore } from './accounts.js';
 import { createSessionToken, readSessionToken, SESSION_COOKIE, SESSION_TTL_MS } from './session.js';
 import { readMoviesInfos } from './scanner.js';
 import { createDownloadManager } from './downloads.js';
+import { createSubtitlesService } from './subtitles.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 
@@ -68,6 +69,7 @@ export function buildApp(config, { logger = true } = {}) {
   const getInfos = createInfosCache(config.moviesInfosPath);
   const accounts = createAccountsStore(config.accountsPath, config.accountsSecret);
   const downloads = createDownloadManager(config.moviesPath, { logger: app.log });
+  const subtitles = createSubtitlesService(config.moviesPath, path.join(path.dirname(config.moviesInfosPath), 'subtitles'));
   app.addHook('onClose', () => downloads.close());
 
   app.register(fastifyCookie);
@@ -202,6 +204,28 @@ export function buildApp(config, { logger = true } = {}) {
   app.delete('/api/downloads/:id', { preHandler: requireUser }, async (request, reply) => {
     if (!downloads.remove(request.params.id)) return reply.code(404).send({ error: 'Téléchargement introuvable' });
     return { ok: true };
+  });
+
+  // ---------- Subtitles (sidecar .srt/.vtt files and text tracks embedded in the video) ----------
+
+  const findMovie = async (id) => (await getInfos()).movies.find((m) => m.id === id);
+
+  app.get('/api/movies/:id/subtitles', { preHandler: requireUser }, async (request, reply) => {
+    const movie = await findMovie(request.params.id);
+    if (!movie) return reply.code(404).send({ error: 'Film introuvable' });
+    return (await subtitles.list(movie)).map(({ id, lang, forced, label }) => ({ id, lang, forced, label }));
+  });
+
+  app.get('/api/movies/:id/subtitles/:track', { preHandler: requireUser }, async (request, reply) => {
+    const movie = await findMovie(request.params.id);
+    const track = movie && (await subtitles.list(movie)).find((t) => t.id === request.params.track);
+    if (!track) return reply.code(404).send({ error: 'Sous-titres introuvables' });
+    try {
+      return reply.type('text/vtt; charset=utf-8').send(await subtitles.read(movie, track));
+    } catch (err) {
+      request.log.error(err, 'subtitle extraction failed');
+      return reply.code(500).send({ error: 'Impossible de lire ces sous-titres' });
+    }
   });
 
   app.get('/api/movies/:id/stream', { preHandler: requireUser }, async (request, reply) => {

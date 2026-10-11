@@ -1,4 +1,5 @@
 import { searchMovies } from './search.js';
+import { createPlayer } from './player.js';
 
 const IMG = 'https://image.tmdb.org/t/p';
 const $ = (id) => document.getElementById(id);
@@ -440,7 +441,8 @@ $('downloads').addEventListener('click', (event) => {
 
 // ---------- Player ----------
 
-const video = $('video');
+const player = createPlayer({ onBack: () => closePlayer() });
+const { video } = player;
 let playing = null;
 let saveTimer = null;
 
@@ -479,28 +481,16 @@ async function playMovie(movie, { restart = false } = {}) {
   } else if (progress[movie.id]) {
     startAt = progress[movie.id].position;
   }
-  video.src = `/api/movies/${movie.id}/stream`;
-  video.addEventListener(
-    'loadedmetadata',
-    () => {
-      if (startAt) video.currentTime = startAt;
-    },
-    { once: true },
-  );
-  $('player').hidden = false;
   document.body.classList.add('no-scroll');
-  video.play().catch(() => {});
+  player.open(movie, { startAt });
 }
 
 function closePlayer() {
   if (!playing) return;
   stopAutoSave();
   const saved = saveProgress();
-  video.pause();
-  video.removeAttribute('src');
-  video.load();
   playing = null;
-  $('player').hidden = true;
+  player.close();
   document.body.classList.remove('no-scroll');
   // Refresh progress bars and the "Reprendre la lecture" row once the last save landed.
   saved.then(() => {
@@ -519,16 +509,14 @@ video.addEventListener('ended', () => {
   if (!playing) return;
   delete progress[playing.id];
   api(`/api/progress/${playing.id}`, { method: 'DELETE' }).catch(() => {});
-});
-video.addEventListener('error', () => {
-  if (playing) alert('Impossible de lire ce fichier dans le navigateur (format ou codec non supporté).');
+  // Back to the catalogue once the movie is over, like Netflix.
+  closePlayer();
 });
 window.addEventListener('pagehide', () => saveProgress({ keepalive: true }));
 
-$('player-back').addEventListener('click', closePlayer);
-
 document.addEventListener('keydown', (event) => {
   console.log("Debug key", event);
+  if (player.handleKey(event)) return;
   if (event.key === 'Enter') {
     // Enter anywhere on the catalogue (but not while typing or on a focused button) opens downloads.
     const busy = !$('player').hidden || !$('modal').hidden || !$('downloads').hidden || $('browse-view').hidden;

@@ -18,6 +18,15 @@ A Netflix-like streaming site for a local movie folder, served with Fastify. No 
   The server streams the file to `MOVIES_PATH/<name>.part` and renames it when complete, so the
   watcher picks it up automatically. The name comes from `Content-Disposition` or the URL; links
   that don't look like a video file are rejected.
+- **Player**: Netflix-style controls (auto-hiding, red scrubber with time preview, ±10 s, volume,
+  playback speed, fullscreen, "Vous regardez" screen when paused). Keys: <kbd>Space</kbd>/<kbd>K</kbd>
+  play/pause, <kbd>←</kbd>/<kbd>→</kbd> ±10 s, <kbd>↑</kbd>/<kbd>↓</kbd> volume, <kbd>M</kbd> mute,
+  <kbd>F</kbd> fullscreen, <kbd>Esc</kbd> back. Volume and subtitle language are remembered per browser.
+- **Subtitles**: `.srt`/`.vtt` files next to the video (`Movie.fr.srt`, `Movie.en.forced.srt`, or any
+  file in a `Subs/` folder when the video is alone in its folder), plus text tracks embedded in the
+  video when `ffmpeg` is installed. SRT files are converted to WebVTT on the fly (UTF-8 or
+  Windows-1252); embedded tracks are extracted once and cached in `subtitles/` next to
+  `MOVIES_INFOS_PATH`. Image-based tracks (PGS/VobSub) aren't supported.
 - **Frontend**: categories (recently added, top rated, one row per genre) and a fuzzy search
   based on the Damerau-Levenshtein distance (`public/js/search.js`).
 
@@ -45,6 +54,8 @@ npm start              # http://localhost:3000
 ## Notes
 
 - Browsers play mp4 (H.264/AAC) and webm natively; mkv/avi playback depends on the browser and codecs.
+- Extracting an embedded subtitle track reads the whole video file, so the first time a track is
+  picked on a large mkv it can take a little while before the subtitles appear.
 - Downloads need `MOVIES_PATH` to be writable. Any logged-in user can make the server fetch an
   arbitrary http(s) URL, so only give accounts to people you trust.
 - Files TMDB can't identify still appear (under "Autres") with the title parsed from the filename.

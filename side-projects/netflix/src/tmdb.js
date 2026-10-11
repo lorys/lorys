@@ -50,11 +50,10 @@ export function createTmdbClient(apiKey, { fetchImpl = fetch } = {}) {
 
   return {
     async searchMovie(title, year) {
-
-      
       let data = await get('/search/movie', { query: normalizeMovieFilename(title), year: year ?? undefined, include_adult: false });
       // The year in filenames is sometimes off by one (festival vs release date): retry without it.
       if (!data.results?.length && year) data = await get('/search/movie', { query: normalizeMovieFilename(title), include_adult: false });
+      console.log("Search movie", data);
       return data.results?.[0] ?? null;
     },
     movieDetails(id) {

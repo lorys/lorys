@@ -1,5 +1,8 @@
 FROM node:22-alpine
 
+# ffmpeg reads the subtitle tracks embedded in mkv/mp4 files.
+RUN apk add --no-cache ffmpeg
+
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -10,7 +13,7 @@ COPY bin ./bin
 COPY public ./public
 
 # /movies: the video library (mounted read-only)
-# /data: movies.json (TMDB cache) and accounts.enc (accounts + watch progress)
+# /data: movies.json (TMDB cache), accounts.enc (accounts + watch progress), subtitles/ (extracted tracks)
 RUN mkdir -p /movies /data && chown node:node /data
 VOLUME ["/data"]
 
