@@ -299,6 +299,145 @@ $('modal-restart').addEventListener('click', () => {
   playMovie(modalMovie, { restart: true });
 });
 
+// ---------- Downloads ----------
+
+const DOWNLOADS_POLL_MS = 1000;
+// downloadId → <li>, plus the empty "draft" row at the bottom that takes a new link.
+const downloadRows = new Map();
+let draftRow = null;
+let downloadsTimer = null;
+
+function formatBytes(bytes) {
+  const units = ['o', 'Ko', 'Mo', 'Go', 'To'];
+  let i = 0;
+  while (bytes >= 1000 && i < units.length - 1) {
+    bytes /= 1000;
+    i++;
+  }
+  return `${bytes.toLocaleString('fr-FR', { maximumFractionDigits: i ? 1 : 0 })} ${units[i]}`;
+}
+
+function setDownloadStatus(row, text, { percent = null, state = '' } = {}) {
+  row.className = `download${state ? ` download--${state}` : ''}`;
+  row.querySelector('.download__status').hidden = false;
+  row.querySelector('.download__text').textContent = text;
+  row.querySelector('.download__bar > span').style.width = `${percent ?? 0}%`;
+}
+
+function renderDownload(row, download) {
+  const input = row.querySelector('.download__url');
+  input.value = download.url;
+  input.readOnly = true;
+  input.title = download.filename ?? download.url;
+  const remove = row.querySelector('.download__remove');
+  remove.hidden = false;
+  remove.setAttribute('aria-label', download.status === 'downloading' ? 'Annuler' : 'Retirer de la liste');
+  remove.title = remove.getAttribute('aria-label');
+
+  if (download.status === 'downloading') {
+    if (download.total) {
+      const percent = Math.min(100, (download.received / download.total) * 100);
+      setDownloadStatus(row, `${Math.floor(percent)} % · ${formatBytes(download.received)} / ${formatBytes(download.total)}`, { percent });
+    } else {
+      setDownloadStatus(row, download.received ? formatBytes(download.received) : 'Connexion…', { state: 'indeterminate' });
+    }
+  } else if (download.status === 'done') {
+    setDownloadStatus(row, `Terminé · ${download.filename}`, { percent: 100, state: 'done' });
+  } else if (download.status === 'cancelled') {
+    setDownloadStatus(row, 'Annulé', { state: 'error' });
+  } else {
+    setDownloadStatus(row, `Échec : ${download.error}`, { state: 'error' });
+  }
+}
+
+function createDownloadRow() {
+  const row = $('download-template').content.firstElementChild.cloneNode(true);
+  row.querySelector('form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (row === draftRow) startDownload(row);
+  });
+  row.querySelector('.download__remove').addEventListener('click', async () => {
+    const id = row.dataset.id;
+    try {
+      await api(`/api/downloads/${id}`, { method: 'DELETE' });
+    } catch {}
+    await refreshDownloads();
+  });
+  return row;
+}
+
+function addDraftRow() {
+  draftRow = createDownloadRow();
+  $('downloads-list').append(draftRow);
+  return draftRow;
+}
+
+async function startDownload(row) {
+  const input = row.querySelector('.download__url');
+  const url = input.value.trim();
+  if (!url) return;
+  input.readOnly = true;
+  try {
+    const download = await api('/api/downloads', { method: 'POST', body: JSON.stringify({ url }) });
+    row.dataset.id = download.id;
+    downloadRows.set(download.id, row);
+    renderDownload(row, download);
+    addDraftRow().querySelector('input').focus();
+  } catch (err) {
+    input.readOnly = false;
+    setDownloadStatus(row, err.message, { state: 'error' });
+    input.focus();
+  }
+}
+
+async function refreshDownloads() {
+  let list;
+  try {
+    list = await api('/api/downloads');
+  } catch {
+    return;
+  }
+  const seen = new Set();
+  for (const download of list) {
+    seen.add(download.id);
+    let row = downloadRows.get(download.id);
+    if (!row) {
+      // Started before the modal was opened (or from another tab).
+      row = createDownloadRow();
+      row.dataset.id = download.id;
+      downloadRows.set(download.id, row);
+      $('downloads-list').insertBefore(row, draftRow);
+    }
+    renderDownload(row, download);
+  }
+  for (const [id, row] of downloadRows) {
+    if (seen.has(id)) continue;
+    row.remove();
+    downloadRows.delete(id);
+  }
+}
+
+function openDownloads() {
+  if (!draftRow) addDraftRow();
+  $('downloads').hidden = false;
+  document.body.classList.add('no-scroll');
+  draftRow.querySelector('input').focus();
+  refreshDownloads();
+  clearInterval(downloadsTimer);
+  downloadsTimer = setInterval(refreshDownloads, DOWNLOADS_POLL_MS);
+}
+
+function closeDownloads() {
+  clearInterval(downloadsTimer);
+  downloadsTimer = null;
+  $('downloads').hidden = true;
+  document.body.classList.remove('no-scroll');
+}
+
+$('downloads').addEventListener('click', (event) => {
+  if (event.target.closest('[data-close]')) closeDownloads();
+});
+
 // ---------- Player ----------
 
 const video = $('video');
@@ -389,9 +528,18 @@ window.addEventListener('pagehide', () => saveProgress({ keepalive: true }));
 $('player-back').addEventListener('click', closePlayer);
 
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    // Enter anywhere on the catalogue (but not while typing or on a focused button) opens downloads.
+    const busy = !$('player').hidden || !$('modal').hidden || !$('downloads').hidden || $('browse-view').hidden;
+    if (busy || event.target.closest('input, textarea, select, button, a')) return;
+    event.preventDefault();
+    openDownloads();
+    return;
+  }
   if (event.key !== 'Escape') return;
   if (!$('player').hidden) closePlayer();
   else if (!$('modal').hidden) closeModal();
+  else if (!$('downloads').hidden) closeDownloads();
 });
 
 // ---------- Boot ----------

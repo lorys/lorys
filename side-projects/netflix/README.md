@@ -13,6 +13,11 @@ A Netflix-like streaming site for a local movie folder, served with Fastify. No 
   entry of the accounts file, as `progress: { [movieId]: { position, duration, updatedAt } }`.
   Started movies show a red progress bar, appear in "Reprendre la lecture", and can be resumed or
   restarted; progress is cleared once only the credits are left (last 5%, at least 1 min).
+- **Downloads**: press <kbd>Enter</kbd> on the catalogue to open the download modal, paste a video
+  link and press Enter again. Each link gets its own progress bar and several can run in parallel.
+  The server streams the file to `MOVIES_PATH/<name>.part` and renames it when complete, so the
+  watcher picks it up automatically. The name comes from `Content-Disposition` or the URL; links
+  that don't look like a video file are rejected.
 - **Frontend**: categories (recently added, top rated, one row per genre) and a fuzzy search
   based on the Damerau-Levenshtein distance (`public/js/search.js`).
 
@@ -40,5 +45,7 @@ npm start              # http://localhost:3000
 ## Notes
 
 - Browsers play mp4 (H.264/AAC) and webm natively; mkv/avi playback depends on the browser and codecs.
+- Downloads need `MOVIES_PATH` to be writable. Any logged-in user can make the server fetch an
+  arbitrary http(s) URL, so only give accounts to people you trust.
 - Files TMDB can't identify still appear (under "Autres") with the title parsed from the filename.
   Rename the file to fix the match, or run `npm run scan -- --force`.

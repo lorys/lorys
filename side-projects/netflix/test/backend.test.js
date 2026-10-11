@@ -17,6 +17,7 @@ import { parseMovieFilename } from '../src/filename.js';
 import { readMoviesInfos, scanMovies } from '../src/scanner.js';
 import { needsScan } from '../src/watcher.js';
 import { buildApp, isFinished, parseRange } from '../src/app.js';
+import { pickFilename } from '../src/downloads.js';
 
 test('accounts round-trip through encryption and reject a wrong secret', () => {
   const accounts = [{ username: 'lorys', password: 'secret' }];
@@ -249,5 +250,86 @@ test('HTTP API: watch progress is stored in the accounts file', async () => {
     assert.equal(invalid.statusCode, 400);
   } finally {
     await app.close();
+  }
+});
+
+test('pickFilename prefers Content-Disposition, sanitizes, and rejects non-videos', () => {
+  assert.equal(pickFilename({ disposition: 'attachment; filename="Amelie.2001.mkv"', url: 'https://x.test/dl?id=1' }), 'Amelie.2001.mkv');
+  assert.equal(pickFilename({ disposition: "attachment; filename*=UTF-8''Am%C3%A9lie.mp4", url: 'https://x.test/a' }), 'Amélie.mp4');
+  assert.equal(pickFilename({ url: 'https://x.test/films/La%20Haine.avi?token=1' }), 'La Haine.avi');
+  assert.equal(pickFilename({ disposition: 'attachment; filename="../../etc/evil.mp4"', url: 'https://x.test/' }), 'evil.mp4');
+  assert.equal(pickFilename({ url: 'https://x.test/watch', contentType: 'video/webm; codecs=vp9' }), 'watch.webm');
+  assert.equal(pickFilename({ url: 'https://x.test/page.html', contentType: 'text/html' }), null);
+});
+
+test('HTTP API: downloads a movie into MOVIES_PATH with progress', async () => {
+  const http = await import('node:http');
+  const body = Buffer.alloc(200_000, 7);
+  const server = http.createServer((req, res) => {
+    if (req.url === '/Telecharge.2020.mp4') {
+      res.writeHead(200, { 'content-length': body.length, 'content-type': 'video/mp4' });
+      res.end(body);
+    } else if (req.url === '/slow.mp4') {
+      res.writeHead(200, { 'content-length': body.length });
+      res.write(body.subarray(0, 1000)); // never finishes
+    } else {
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<html></html>');
+    }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const app = buildApp(config, { logger: false });
+  const waitFor = async (cookies, id, status) => {
+    for (let i = 0; i < 200; i++) {
+      const found = (await app.inject({ url: '/api/downloads', cookies })).json().find((d) => d.id === id);
+      if (found.status === status) return found;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    throw new Error(`download never reached ${status}`);
+  };
+  try {
+    assert.equal((await app.inject({ method: 'POST', url: '/api/downloads', payload: { url: base } })).statusCode, 401);
+    const login = await app.inject({ method: 'POST', url: '/api/login', payload: { username: 'lorys', password: 'pw' } });
+    const cookies = { session: login.cookies.find((c) => c.name === 'session').value };
+
+    const invalid = await app.inject({ method: 'POST', url: '/api/downloads', cookies, payload: { url: 'file:///etc/passwd' } });
+    assert.equal(invalid.statusCode, 400);
+
+    // Two downloads in parallel: one completes, one hangs and gets cancelled.
+    const ok = (await app.inject({ method: 'POST', url: '/api/downloads', cookies, payload: { url: `${base}/Telecharge.2020.mp4` } })).json();
+    const slow = (await app.inject({ method: 'POST', url: '/api/downloads', cookies, payload: { url: `${base}/slow.mp4` } })).json();
+    assert.equal(ok.status, 'downloading');
+
+    const done = await waitFor(cookies, ok.id, 'done');
+    assert.equal(done.filename, 'Telecharge.2020.mp4');
+    assert.equal(done.received, body.length);
+    assert.equal(done.total, body.length);
+    assert.deepEqual(await fs.readFile(path.join(config.moviesPath, 'Telecharge.2020.mp4')), body);
+
+    const running = (await app.inject({ url: '/api/downloads', cookies })).json().find((d) => d.id === slow.id);
+    assert.equal(running.status, 'downloading');
+    assert.ok(await fs.stat(path.join(config.moviesPath, 'slow.mp4.part')));
+    assert.equal(await needsScan(config), true, 'the finished file is picked up');
+    assert.equal((await app.inject({ method: 'DELETE', url: `/api/downloads/${slow.id}`, cookies })).statusCode, 200);
+    await waitFor(cookies, slow.id, 'cancelled');
+    await assert.rejects(fs.stat(path.join(config.moviesPath, 'slow.mp4.part')), 'partial file removed');
+
+    // Same name again gets a suffix; non-video links fail.
+    const again = (await app.inject({ method: 'POST', url: '/api/downloads', cookies, payload: { url: `${base}/Telecharge.2020.mp4` } })).json();
+    assert.equal((await waitFor(cookies, again.id, 'done')).filename, 'Telecharge.2020 (1).mp4');
+    const html = (await app.inject({ method: 'POST', url: '/api/downloads', cookies, payload: { url: `${base}/page` } })).json();
+    assert.match((await waitFor(cookies, html.id, 'error')).error, /vidéo/);
+
+    // Finished downloads can be dismissed.
+    assert.equal((await app.inject({ method: 'DELETE', url: `/api/downloads/${ok.id}`, cookies })).statusCode, 200);
+    assert.ok(!(await app.inject({ url: '/api/downloads', cookies })).json().some((d) => d.id === ok.id));
+    assert.equal((await app.inject({ method: 'DELETE', url: `/api/downloads/${ok.id}`, cookies })).statusCode, 404);
+  } finally {
+    await app.close();
+    server.closeAllConnections();
+    server.close();
+    await fs.rm(path.join(config.moviesPath, 'Telecharge.2020.mp4'), { force: true });
+    await fs.rm(path.join(config.moviesPath, 'Telecharge.2020 (1).mp4'), { force: true });
   }
 });

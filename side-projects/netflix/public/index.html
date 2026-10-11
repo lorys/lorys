@@ -74,6 +74,17 @@
       </article>
     </div>
 
+    <!-- Downloads (opened with Enter) -->
+    <div id="downloads" class="modal" hidden>
+      <div class="modal__backdrop" data-close></div>
+      <article class="modal__card downloads" role="dialog" aria-modal="true" aria-labelledby="downloads-title">
+        <button class="modal__close" data-close aria-label="Fermer">✕</button>
+        <h2 id="downloads-title">Télécharger un film</h2>
+        <p class="downloads__hint">Collez le lien d'un fichier vidéo puis appuyez sur Entrée. Plusieurs téléchargements peuvent tourner en même temps.</p>
+        <ul id="downloads-list" class="downloads__list"></ul>
+      </article>
+    </div>
+
     <!-- Player -->
     <div id="player" class="player" hidden>
       <button class="player__back" id="player-back" aria-label="Retour">← Retour</button>
@@ -86,6 +97,19 @@
         <span class="card__fallback"></span>
         <span class="progress card__progress" hidden><span></span></span>
       </button>
+    </template>
+
+    <template id="download-template">
+      <li class="download">
+        <form class="download__form">
+          <input class="download__url" type="url" placeholder="https://exemple.com/film.mp4" autocomplete="off" required />
+          <button type="button" class="download__remove" aria-label="Annuler" hidden>✕</button>
+        </form>
+        <div class="download__status" hidden>
+          <span class="progress download__bar"><span></span></span>
+          <span class="download__text"></span>
+        </div>
+      </li>
     </template>
   </body>
 </html>

@@ -8,6 +8,7 @@ import fastifyStatic from '@fastify/static';
 import { authenticate, createAccountsStore } from './accounts.js';
 import { createSessionToken, readSessionToken, SESSION_COOKIE, SESSION_TTL_MS } from './session.js';
 import { readMoviesInfos } from './scanner.js';
+import { createDownloadManager } from './downloads.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 
@@ -66,6 +67,8 @@ export function buildApp(config, { logger = true } = {}) {
   const app = Fastify({ logger });
   const getInfos = createInfosCache(config.moviesInfosPath);
   const accounts = createAccountsStore(config.accountsPath, config.accountsSecret);
+  const downloads = createDownloadManager(config.moviesPath, { logger: app.log });
+  app.addHook('onClose', () => downloads.close());
 
   app.register(fastifyCookie);
   app.register(fastifyStatic, { root: PUBLIC_DIR });
@@ -169,6 +172,36 @@ export function buildApp(config, { logger = true } = {}) {
     });
     if (!found) return reply.code(401).send({ error: 'Compte introuvable' });
     return { progress: null };
+  });
+
+  // ---------- Downloads into MOVIES_PATH ----------
+
+  app.get('/api/downloads', { preHandler: requireUser }, async () => downloads.list());
+
+  app.post('/api/downloads', {
+    preHandler: requireUser,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['url'],
+        properties: { url: { type: 'string', maxLength: 4000 } },
+      },
+    },
+    handler: async (request, reply) => {
+      let url;
+      try {
+        url = new URL(request.body.url.trim());
+      } catch {}
+      if (!url || !['http:', 'https:'].includes(url.protocol)) {
+        return reply.code(400).send({ error: 'Lien invalide (http ou https attendu)' });
+      }
+      return reply.code(201).send(downloads.start(url.href));
+    },
+  });
+
+  app.delete('/api/downloads/:id', { preHandler: requireUser }, async (request, reply) => {
+    if (!downloads.remove(request.params.id)) return reply.code(404).send({ error: 'Téléchargement introuvable' });
+    return { ok: true };
   });
 
   app.get('/api/movies/:id/stream', { preHandler: requireUser }, async (request, reply) => {
