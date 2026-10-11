@@ -1,7 +1,14 @@
 // Converts movies browsers can't play (container or codecs) to MP4 H.264/AAC, replacing the
 // original file. Text subtitles are extracted next to the new file first, since MP4 can't keep them.
+import { execFile, spawn } from 'node:child_process';
+import fs from 'node:fs/promises';
 import path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { promisify } from 'node:util';
+import { renameMovieEntry, runExclusive } from './scanner.js';
 import { describeSubtitle } from './subtitles.js';
+
+const run = promisify(execFile);
 
 export const TEMP_SUFFIX = '.converting';
 
@@ -105,4 +112,337 @@ export function subtitleSidecarName(videoFile, track, taken) {
   let name = `${stem}.srt`;
   for (let n = 2; taken.has(name); n++) name = `${stem}.${n}.srt`;
   return name;
+}
+
+async function ffprobe(filePath, signal) {
+  const { stdout } = await run('ffprobe', ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', filePath], {
+    timeout: 60_000,
+    maxBuffer: 16 * 1024 * 1024,
+    signal,
+  });
+  return JSON.parse(stdout);
+}
+
+/** Runs ffmpeg; `onStdout` gets the -progress output. Rejects with ffmpeg's last error line. */
+function ffmpeg(args, { signal, onStdout }) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('ffmpeg', args, { signal, killSignal: 'SIGKILL', stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    child.stdout.on('data', (chunk) => onStdout?.(chunk));
+    child.stderr.on('data', (chunk) => {
+      stderr = (stderr + chunk).slice(-4000);
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(stderr.trim().split('\n').at(-1) || `ffmpeg a échoué (code ${code})`));
+    });
+  });
+}
+
+async function* walkTempFiles(dir) {
+  for (const entry of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) yield* walkTempFiles(full);
+    else if (entry.name.startsWith('.') && entry.name.endsWith(TEMP_SUFFIX)) yield full;
+  }
+}
+
+/** Hidden temp name next to `file` (the scanner skips dotfiles). */
+function tempPathFor(absolutePath) {
+  return path.join(path.dirname(absolutePath), `.${path.basename(absolutePath)}${TEMP_SUFFIX}`);
+}
+
+const exists = (p) => fs.access(p).then(() => true, () => false);
+const statKey = (stat) => `${stat.size}-${stat.mtimeMs}`;
+
+/**
+ * convert.json: files known to play in browsers — converted ones (`converted: true`) and those that
+ * already did (`converted: false`) — with the size and mtime they had, so they're never checked twice.
+ */
+export function createConversionTracking(filePath, { logger = console } = {}) {
+  let loading = null;
+  let saving = Promise.resolve();
+
+  function load() {
+    loading ??= fs.readFile(filePath, 'utf8').then(
+      (text) => JSON.parse(text).files ?? {},
+      (err) => {
+        if (err.code !== 'ENOENT') logger.warn(`Cannot read ${filePath} (${err.message}), starting from scratch`);
+        return {};
+      },
+    ).catch((err) => {
+      logger.warn(`Cannot parse ${filePath} (${err.message}), starting from scratch`);
+      return {};
+    });
+    return loading;
+  }
+
+  return {
+    /** True when `file` is recorded with this exact size and mtime. */
+    async has(file, stat) {
+      const entry = (await load())[file];
+      return Boolean(entry) && entry.size === stat.size && entry.mtimeMs === stat.mtimeMs;
+    },
+
+    async record(file, stat, { converted, source }) {
+      const files = await load();
+      files[file] = { size: stat.size, mtimeMs: stat.mtimeMs, converted, ...(source ? { source } : {}), at: new Date().toISOString() };
+      saving = saving
+        .then(async () => {
+          await fs.mkdir(path.dirname(filePath), { recursive: true });
+          const tmp = `${filePath}.${process.pid}.tmp`;
+          await fs.writeFile(tmp, JSON.stringify({ files }, null, 2) + '\n');
+          await fs.rename(tmp, filePath);
+        })
+        .catch((err) => logger.warn(`Cannot write ${filePath}: ${err.message}`));
+      return saving;
+    },
+  };
+}
+
+/**
+ * Converts movies one at a time. `enqueue` checks movies right away; only movies that need a
+ * conversion get a status, which `GET /api/movies` shows to the frontend.
+ */
+export function createConversionManager(
+  config,
+  {
+    logger = console,
+    stableMs = 5_000,
+    probe = ffprobe,
+    trackingPath = path.join(path.dirname(config.moviesInfosPath), 'convert.json'),
+  } = {},
+) {
+  const { moviesPath } = config;
+  const tracking = createConversionTracking(trackingPath, { logger });
+  const states = new Map(); // movieId → { id, file, key, status, percent, error }
+  const plans = new Map(); // file → { key, plan } (probe cache)
+  const queue = [];
+  const abort = new AbortController();
+  let worker = null;
+  let tools = null;
+
+  /** ffmpeg + ffprobe installed? Also whether ffmpeg can tone-map HDR (zscale). */
+  function checkTools() {
+    tools ??= (async () => {
+      try {
+        await Promise.all([run('ffmpeg', ['-version']), run('ffprobe', ['-version'])]);
+      } catch {
+        logger.warn('ffmpeg/ffprobe not found: movies browsers can’t play won’t be converted');
+        return null;
+      }
+      const { stdout } = await run('ffmpeg', ['-hide_banner', '-filters'], { maxBuffer: 4 * 1024 * 1024 });
+      const zscale = /\szscale\s/.test(stdout);
+      if (!zscale) logger.warn('ffmpeg has no zscale filter: HDR movies will be converted without tone mapping');
+      return { zscale };
+    })();
+    return tools;
+  }
+
+  /**
+   * Resolves with the file's stat once its size hasn't changed for `stableMs` (still being copied
+   * or downloaded otherwise). A file not modified for that long is stable right away.
+   */
+  async function waitUntilStable(full) {
+    let before = await fs.stat(full);
+    for (;;) {
+      if (Date.now() - before.mtimeMs >= stableMs) return before;
+      await sleep(stableMs, null, { signal: abort.signal });
+      const after = await fs.stat(full);
+      if (after.size === before.size) return after;
+      before = after;
+    }
+  }
+
+  async function planFor(file, stat) {
+    const key = statKey(stat);
+    const cached = plans.get(file);
+    if (cached?.key === key) return cached.plan;
+    const plan = planConversion(await probe(path.join(moviesPath, file), abort.signal), file);
+    plans.set(file, { key, plan });
+    return plan;
+  }
+
+  // Queued/converting movies, and failed ones until their file changes or the server restarts.
+  const handled = (movie, key) => {
+    const state = states.get(movie.id);
+    return Boolean(state) && (state.status !== 'failed' || state.key === key);
+  };
+
+  async function enqueue(movie) {
+    if (abort.signal.aborted || !(await checkTools())) return;
+    const full = path.join(moviesPath, movie.file);
+    let stat;
+    try {
+      stat = await fs.stat(full);
+      if (handled(movie, statKey(stat)) || (await tracking.has(movie.file, stat))) return;
+      stat = await waitUntilStable(full);
+    } catch {
+      return; // removed meanwhile, or shutting down
+    }
+    const key = statKey(stat);
+    let plan;
+    try {
+      plan = await planFor(movie.file, stat);
+    } catch (err) {
+      if (abort.signal.aborted || handled(movie, key)) return;
+      states.set(movie.id, { id: movie.id, file: movie.file, key, status: 'failed', percent: 0, error: 'Fichier illisible' });
+      logger.warn(`Cannot probe "${movie.file}": ${err.message}`);
+      return;
+    }
+    // Another enqueue of the same movie may have won while we were waiting or probing.
+    if (abort.signal.aborted || handled(movie, key)) return;
+    if (!plan) {
+      states.delete(movie.id); // a previous failure on an older version of the file
+      await tracking.record(movie.file, stat, { converted: false });
+      return;
+    }
+    states.set(movie.id, { id: movie.id, file: movie.file, key, status: 'queued', percent: 0, error: null });
+    queue.push(movie.id);
+    worker ??= work().finally(() => {
+      worker = null;
+    });
+  }
+
+  async function work() {
+    while (queue.length && !abort.signal.aborted) {
+      const state = states.get(queue.shift());
+      const job = { temps: [] };
+      try {
+        await convert(state, job);
+        states.delete(state.id);
+      } catch (err) {
+        if (abort.signal.aborted) {
+          states.delete(state.id);
+        } else {
+          Object.assign(state, { status: 'failed', percent: 0, error: err.message });
+          logger.warn(`Conversion failed for "${state.file}": ${err.message}`);
+        }
+      } finally {
+        await Promise.all(job.temps.map((t) => fs.rm(t, { force: true })));
+      }
+    }
+  }
+
+  /** `wanted`, or "Name (1).mp4"… when another file already has that name. */
+  async function freeName(wanted, source) {
+    if (wanted === source || !(await exists(path.join(moviesPath, wanted)))) return wanted;
+    const ext = path.extname(wanted);
+    const stem = wanted.slice(0, wanted.length - ext.length);
+    for (let n = 1; ; n++) {
+      const name = `${stem} (${n})${ext}`;
+      if (!(await exists(path.join(moviesPath, name)))) return name;
+    }
+  }
+
+  async function verify(outputPath, plan) {
+    const { streams = [], format } = await probe(outputPath, abort.signal);
+    const videos = streams.filter((s) => s.codec_type === 'video');
+    const audios = streams.filter((s) => s.codec_type === 'audio');
+    if (videos.length !== 1 || videos[0].codec_name !== 'h264') throw new Error('Piste vidéo invalide après conversion');
+    if (audios.length !== plan.audio.length) throw new Error('Pistes audio manquantes après conversion');
+    const duration = Number(format?.duration);
+    if (plan.duration && !(Math.abs(duration - plan.duration) <= 2)) {
+      throw new Error(`Durée différente après conversion (${duration} s au lieu de ${plan.duration} s)`);
+    }
+  }
+
+  async function convert(state, job) {
+    const { zscale } = await checkTools();
+    const sourcePath = path.join(moviesPath, state.file);
+    // The file may have changed while it was queued.
+    const source = await waitUntilStable(sourcePath);
+    const plan = await planFor(state.file, source);
+    if (!plan) return;
+    state.key = statKey(source);
+    state.status = 'converting';
+    logger.info(`Converting "${state.file}" (video: ${plan.video}, audio: ${plan.audio.map((a) => a.action).join('/') || 'none'})`);
+
+    const outputFile = await freeName(plan.outputFile, state.file);
+    const outputPath = path.join(moviesPath, outputFile);
+
+    // 1. Text subtitles → sidecar .srt files (MP4 can't keep them).
+    const dir = path.posix.dirname(outputFile);
+    const taken = new Set(
+      (await fs.readdir(path.dirname(outputPath))).map((name) => (dir === '.' ? name : `${dir}/${name}`)),
+    );
+    const sidecars = plan.subtitles.map((track) => {
+      const name = subtitleSidecarName(outputFile, track, taken);
+      taken.add(name);
+      const final = path.join(moviesPath, name);
+      return { index: track.index, final, path: tempPathFor(final) };
+    });
+    job.temps.push(...sidecars.map((s) => s.path));
+    if (sidecars.length) await ffmpeg(subtitleArgs(sourcePath, sidecars), { signal: abort.signal });
+
+    // 2. Audio/video into a hidden temp file.
+    const tempPath = tempPathFor(outputPath);
+    job.temps.push(tempPath);
+    const onProgress = createProgressParser((seconds) => {
+      if (plan.duration) state.percent = Math.min(99, Math.floor((seconds / plan.duration) * 100));
+    });
+    await ffmpeg(ffmpegArgs(plan, sourcePath, tempPath, { zscale }), { signal: abort.signal, onStdout: onProgress });
+
+    // 3. Check the result before throwing the original away.
+    await verify(tempPath, plan);
+    await fs.utimes(tempPath, source.atime, source.mtime); // keeps its place in "Ajoutés récemment"
+
+    // 4. Swap files and update movies.json together, so a scan never sees half of it.
+    await runExclusive(async () => {
+      for (const s of sidecars) await fs.rename(s.path, s.final);
+      await fs.rename(tempPath, outputPath);
+      if (outputFile !== state.file) {
+        await fs.rm(sourcePath, { force: true });
+        await renameMovieEntry(config, state.file, outputFile);
+      }
+    });
+    plans.delete(state.file);
+
+    // 5. Never check this file again (unless it changes).
+    await tracking.record(outputFile, await fs.stat(outputPath), { converted: true, source: state.file });
+    logger.info(`Converted "${state.file}" → "${outputFile}"`);
+  }
+
+  const view = ({ status, percent, error }) => ({ status, percent, error });
+
+  return {
+    enqueue,
+
+    status(id) {
+      const state = states.get(id);
+      return state ? view(state) : null;
+    },
+
+    list() {
+      return Object.fromEntries([...states.values()].map((s) => [s.id, view(s)]));
+    },
+
+    isBusy(id) {
+      return ['queued', 'converting'].includes(states.get(id)?.status);
+    },
+
+    /** Resolves once nothing is queued or converting. */
+    async idle() {
+      while (worker) await worker;
+    },
+
+    /** Removes temp files left by a crash; returns how many. */
+    async cleanup() {
+      let removed = 0;
+      for await (const file of walkTempFiles(moviesPath)) {
+        await fs.rm(file, { force: true });
+        removed++;
+      }
+      if (removed) logger.info(`Removed ${removed} leftover conversion file(s)`);
+      return removed;
+    },
+
+    /** Stops the running ffmpeg (its temp files are deleted) and forgets the queue. */
+    async close() {
+      abort.abort();
+      queue.length = 0;
+      await worker;
+    },
+  };
 }

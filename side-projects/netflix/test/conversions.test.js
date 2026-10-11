@@ -1,6 +1,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import {
+  createConversionManager,
   createProgressParser,
   ffmpegArgs,
   planConversion,
@@ -10,6 +12,7 @@ import {
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { readMoviesInfos, renameMovieEntry, runExclusive } from '../src/scanner.js';
 import { watchMovies } from '../src/watcher.js';
 
@@ -228,4 +231,213 @@ test('watcher scans under the library lock and reports added movies', async () =
   } finally {
     watcher.close();
   }
+});
+
+const run = promisify(execFile);
+const hasFfmpeg = await run('ffmpeg', ['-version']).then(() => true, () => false);
+const quiet = { info() {}, warn() {}, error() {} };
+
+/** MPEG-2 video + English AC3 5.1 (default) + French AC3 5.1 + French SRT, in an mkv. */
+async function makeIncompatibleMkv(file, { seconds = 2 } = {}) {
+  const srt = `${file}.src.srt`;
+  await fs.writeFile(srt, '1\n00:00:00,500 --> 00:00:01,500\nBonjour\n');
+  await run('ffmpeg', [
+    '-v', 'error', '-y',
+    '-f', 'lavfi', '-i', `testsrc=duration=${seconds}:size=320x240:rate=25`,
+    '-f', 'lavfi', '-i', `sine=frequency=440:duration=${seconds}`,
+    '-f', 'lavfi', '-i', `sine=frequency=880:duration=${seconds}`,
+    '-i', srt,
+    '-map', '0', '-map', '1', '-map', '2', '-map', '3',
+    '-c:v', 'mpeg2video', '-c:a', 'ac3', '-ac', '6', '-c:s', 'srt',
+    '-metadata:s:a:0', 'language=eng', '-metadata:s:a:1', 'language=fre', '-metadata:s:s:0', 'language=fre',
+    '-disposition:a:0', 'default', '-disposition:a:1', '0',
+    file,
+  ]);
+  await fs.rm(srt);
+}
+
+async function makeCompatibleMp4(file) {
+  await run('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=duration=1:size=160x120:rate=25', '-f', 'lavfi', '-i', 'sine=duration=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', file]);
+}
+
+async function probe(file) {
+  const { stdout } = await run('ffprobe', ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', file]);
+  return JSON.parse(stdout);
+}
+
+test('converts an incompatible mkv into an mp4 that replaces it', { skip: !hasFfmpeg }, async () => {
+  const movie = { id: 'conv00conv00', file: 'd/Film.mkv', title: 'Film', matched: true };
+  const config = await makeLibrary('convert', [movie]);
+  await fs.mkdir(path.join(config.moviesPath, 'd'));
+  const source = path.join(config.moviesPath, 'd/Film.mkv');
+  await makeIncompatibleMkv(source);
+  const oldTime = new Date('2020-01-02T03:04:05Z');
+  await fs.utimes(source, oldTime, oldTime);
+
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 0 });
+  await conversions.enqueue(movie);
+  assert.equal(conversions.isBusy(movie.id), true);
+  assert.ok(['queued', 'converting'].includes(conversions.status(movie.id).status));
+  await conversions.idle();
+
+  assert.equal(conversions.status(movie.id), null);
+  assert.deepEqual(conversions.list(), {});
+  await assert.rejects(fs.stat(source), 'the mkv is gone');
+  const output = path.join(config.moviesPath, 'd/Film.mp4');
+  const { streams, format } = await probe(output);
+  assert.deepEqual(streams.map((s) => s.codec_name), ['h264', 'aac', 'aac']);
+  assert.deepEqual(streams.filter((s) => s.codec_type === 'audio').map((s) => s.disposition.default), [0, 1]);
+  assert.ok(Math.abs(Number(format.duration) - 2) < 0.5);
+  assert.equal((await fs.stat(output)).mtime.toISOString(), oldTime.toISOString(), 'keeps its date');
+  assert.match(await fs.readFile(path.join(config.moviesPath, 'd/Film.fr.srt'), 'utf8'), /Bonjour/);
+  assert.deepEqual((await fs.readdir(path.join(config.moviesPath, 'd'))).sort(), ['Film.fr.srt', 'Film.mp4'], 'no temp file left');
+
+  const { movies } = await readMoviesInfos(config.moviesInfosPath);
+  assert.deepEqual(movies.map((m) => [m.id, m.file, m.title]), [['conv00conv00', 'd/Film.mp4', 'Film']]);
+});
+
+test('leaves compatible movies alone without ever showing a status', { skip: !hasFfmpeg }, async () => {
+  const movie = { id: 'okok00okok00', file: 'Ok.mp4' };
+  const config = await makeLibrary('compatible', [movie]);
+  const file = path.join(config.moviesPath, 'Ok.mp4');
+  await makeCompatibleMp4(file);
+  const before = await fs.stat(file);
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 0 });
+  await conversions.enqueue(movie);
+  assert.equal(conversions.status(movie.id), null);
+  await conversions.idle();
+  assert.equal((await fs.stat(file)).mtimeMs, before.mtimeMs);
+});
+
+test('enqueue is idempotent', { skip: !hasFfmpeg }, async () => {
+  const movie = { id: 'twice0twice0', file: 'Twice.mkv' };
+  const config = await makeLibrary('twice', [movie]);
+  await makeIncompatibleMkv(path.join(config.moviesPath, 'Twice.mkv'));
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 0 });
+  await Promise.all([conversions.enqueue(movie), conversions.enqueue(movie), conversions.enqueue({ ...movie })]);
+  await conversions.idle();
+  // Converted twice would leave "Twice (1).mp4" or "Twice.fr.2.srt", or fail on the missing mkv.
+  assert.deepEqual((await fs.readdir(config.moviesPath)).sort(), ['Twice.fr.srt', 'Twice.mp4']);
+  assert.equal(conversions.status(movie.id), null);
+});
+
+test('never overwrites another file when the mp4 name is taken', { skip: !hasFfmpeg }, async () => {
+  const movie = { id: 'taken0taken0', file: 'Film.mkv' };
+  const config = await makeLibrary('taken', [movie, { id: 'other0other0', file: 'Film.mp4' }]);
+  await makeIncompatibleMkv(path.join(config.moviesPath, 'Film.mkv'));
+  await fs.writeFile(path.join(config.moviesPath, 'Film.mp4'), 'another movie');
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 0 });
+  await conversions.enqueue(movie);
+  await conversions.idle();
+  assert.equal(await fs.readFile(path.join(config.moviesPath, 'Film.mp4'), 'utf8'), 'another movie');
+  const { movies } = await readMoviesInfos(config.moviesInfosPath);
+  assert.equal(movies.find((m) => m.id === movie.id).file, 'Film (1).mp4');
+  assert.ok(await fs.stat(path.join(config.moviesPath, 'Film (1).fr.srt')));
+});
+
+test('a broken file fails, keeps the original and lets the queue move on', { skip: !hasFfmpeg }, async () => {
+  const broken = { id: 'broken000000', file: 'Broken.mkv' };
+  const good = { id: 'good00good00', file: 'Good.mkv' };
+  const config = await makeLibrary('broken', [broken, good]);
+  // 10 s: long enough for the truncated copy to miss the 2 s duration tolerance.
+  await makeIncompatibleMkv(path.join(config.moviesPath, 'Good.mkv'), { seconds: 10 });
+  // Valid header (probe succeeds) but truncated data (conversion or verification fails).
+  const full = await fs.readFile(path.join(config.moviesPath, 'Good.mkv'));
+  await fs.writeFile(path.join(config.moviesPath, 'Broken.mkv'), full.subarray(0, Math.floor(full.length / 3)));
+  await fs.writeFile(path.join(config.moviesPath, 'Garbage.mkv'), 'not a video');
+  const garbage = { id: 'garbage00000', file: 'Garbage.mkv' };
+
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 0 });
+  await conversions.enqueue(garbage);
+  await conversions.enqueue(broken);
+  await conversions.enqueue(good);
+  await conversions.idle();
+
+  assert.equal(conversions.status(garbage.id).status, 'failed');
+  assert.equal(conversions.status(broken.id).status, 'failed');
+  assert.ok(conversions.status(broken.id).error);
+  assert.equal(conversions.isBusy(broken.id), false);
+  assert.ok(await fs.stat(path.join(config.moviesPath, 'Broken.mkv')), 'original kept');
+  assert.equal(conversions.status(good.id), null, 'next movie still converted');
+  const names = await fs.readdir(config.moviesPath);
+  assert.ok(!names.some((n) => n.endsWith('.converting')), 'temp files removed');
+
+  // A failed movie is only retried by a new manager (next startup).
+  await conversions.enqueue(broken);
+  assert.equal(conversions.status(broken.id).status, 'failed');
+});
+
+test('converts a file only once its size is stable', { skip: !hasFfmpeg }, async () => {
+  const movie = { id: 'stable000000', file: 'Copie.mkv' };
+  const config = await makeLibrary('stable', [movie]);
+  const complete = path.join(dir, 'stable', 'complete.mkv'); // outside the library
+  await makeIncompatibleMkv(complete, { seconds: 4 });
+  const bytes = await fs.readFile(complete);
+  const target = path.join(config.moviesPath, 'Copie.mkv');
+  // Half copied when the manager first looks at it, complete 150 ms later.
+  await fs.writeFile(target, bytes.subarray(0, bytes.length >> 1));
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 300 });
+  const enqueued = conversions.enqueue(movie);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(conversions.status(movie.id), null, 'not probed yet');
+  await fs.writeFile(target, bytes);
+  await enqueued;
+  await conversions.idle();
+  const { format } = await probe(path.join(config.moviesPath, 'Copie.mp4'));
+  assert.ok(Math.abs(Number(format.duration) - 4) < 0.5, 'the whole file was converted');
+});
+
+test('convert.json records checked files so they are never probed twice', { skip: !hasFfmpeg }, async () => {
+  const converted = { id: 'track0track0', file: 'Vieux.mkv' };
+  const compatible = { id: 'track1track1', file: 'Ok.mp4' };
+  const config = await makeLibrary('tracking', [converted, compatible]);
+  await makeIncompatibleMkv(path.join(config.moviesPath, 'Vieux.mkv'));
+  await makeCompatibleMp4(path.join(config.moviesPath, 'Ok.mp4'));
+  const first = createConversionManager(config, { logger: quiet, stableMs: 0 });
+  await first.enqueue(converted);
+  await first.enqueue(compatible);
+  await first.idle();
+
+  const { files } = JSON.parse(await fs.readFile(path.join(dir, 'tracking', 'convert.json'), 'utf8'));
+  const stat = await fs.stat(path.join(config.moviesPath, 'Vieux.mp4'));
+  const { at, ...entry } = files['Vieux.mp4'];
+  assert.ok(at);
+  assert.deepEqual(entry, { size: stat.size, mtimeMs: stat.mtimeMs, converted: true, source: 'Vieux.mkv' });
+  assert.equal(files['Ok.mp4'].converted, false);
+  assert.equal(files['Vieux.mkv'], undefined);
+
+  // A new manager (next startup) trusts convert.json…
+  const probed = [];
+  const spy = async (file) => {
+    probed.push(path.basename(file));
+    throw new Error('unexpected probe');
+  };
+  const second = createConversionManager(config, { logger: quiet, stableMs: 0, probe: spy });
+  await second.enqueue({ ...converted, file: 'Vieux.mp4' });
+  await second.enqueue(compatible);
+  assert.deepEqual(probed, []);
+  assert.deepEqual(second.list(), {});
+
+  // …until the file changes.
+  await fs.appendFile(path.join(config.moviesPath, 'Ok.mp4'), 'x');
+  await second.enqueue(compatible);
+  assert.deepEqual(probed, ['Ok.mp4']);
+});
+
+test('close() kills ffmpeg and keeps the original; cleanup() removes leftovers', { skip: !hasFfmpeg }, async () => {
+  const movie = { id: 'close0close0', file: 'Long.mkv' };
+  const config = await makeLibrary('close', [movie]);
+  await makeIncompatibleMkv(path.join(config.moviesPath, 'Long.mkv'), { seconds: 120 });
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 0 });
+  await conversions.enqueue(movie);
+  for (let i = 0; i < 500 && conversions.status(movie.id)?.status !== 'converting'; i++) await new Promise((r) => setTimeout(r, 10));
+  await conversions.close();
+  assert.deepEqual(await fs.readdir(config.moviesPath), ['Long.mkv']);
+
+  await fs.mkdir(path.join(config.moviesPath, 'sub'));
+  await fs.writeFile(path.join(config.moviesPath, 'sub/.Old.mp4.converting'), 'x');
+  await fs.writeFile(path.join(config.moviesPath, '.Old.fr.srt.converting'), 'x');
+  const fresh = createConversionManager(config, { logger: quiet, stableMs: 0 });
+  assert.equal(await fresh.cleanup(), 2);
+  assert.deepEqual(await fs.readdir(path.join(config.moviesPath, 'sub')), []);
 });
