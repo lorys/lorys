@@ -458,3 +458,45 @@ test('scans keep the id of a converted movie, and never hand it to a file reusin
   assert.equal(byFile['Film.mp4'], movieId('Film.mkv'), 'watch progress stays attached');
   assert.notEqual(byFile['Film.mkv'], byFile['Film.mp4'], 'ids stay unique');
 });
+
+/** Resolves once the movie's ffmpeg run has started. */
+async function untilConverting(conversions, id) {
+  for (let i = 0; i < 1000 && conversions.status(id)?.status !== 'converting'; i++) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(conversions.status(id)?.status, 'converting');
+}
+
+test('never overwrites a file that appears under the target names during the conversion', { skip: !hasFfmpeg }, async () => {
+  const movie = { id: 'late00late00', file: 'Film.mkv' };
+  const config = await makeLibrary('late', [movie]);
+  await makeIncompatibleMkv(path.join(config.moviesPath, 'Film.mkv'), { seconds: 60 });
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 0 });
+  await conversions.enqueue(movie);
+  await untilConverting(conversions, movie.id);
+  // Downloaded meanwhile: another movie, and a subtitle file of its own.
+  await fs.writeFile(path.join(config.moviesPath, 'Film.mp4'), 'another movie');
+  await fs.writeFile(path.join(config.moviesPath, 'Film (1).fr.srt'), 'my subtitles');
+  await conversions.idle();
+
+  assert.equal(await fs.readFile(path.join(config.moviesPath, 'Film.mp4'), 'utf8'), 'another movie');
+  assert.equal(await fs.readFile(path.join(config.moviesPath, 'Film (1).fr.srt'), 'utf8'), 'my subtitles');
+  assert.match(await fs.readFile(path.join(config.moviesPath, 'Film (1).fr.2.srt'), 'utf8'), /Bonjour/);
+  const { movies } = await readMoviesInfos(config.moviesInfosPath);
+  assert.equal(movies.find((m) => m.id === movie.id).file, 'Film (1).mp4');
+});
+
+test('a source replaced during the conversion is kept and converted again', { skip: !hasFfmpeg }, async () => {
+  const movie = { id: 'swap00swap00', file: 'Film.mkv' };
+  const config = await makeLibrary('replaced', [movie]);
+  await makeIncompatibleMkv(path.join(config.moviesPath, 'Film.mkv'), { seconds: 60 });
+  const better = path.join(dir, 'replaced', 'better.mkv');
+  await makeIncompatibleMkv(better, { seconds: 3 });
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 0 });
+  await conversions.enqueue(movie);
+  await untilConverting(conversions, movie.id);
+  await fs.copyFile(better, path.join(config.moviesPath, 'Film.mkv')); // a better release, copied over it
+  await conversions.idle();
+
+  const { format } = await probe(path.join(config.moviesPath, 'Film.mp4'));
+  assert.ok(Math.abs(Number(format.duration) - 3) < 0.5, `the new file was converted (got ${format.duration} s)`);
+  assert.equal(conversions.status(movie.id), null);
+});

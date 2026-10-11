@@ -310,11 +310,20 @@ export function createConversionManager(
       const state = states.get(queue.shift());
       const job = { temps: [] };
       try {
-        await convert(state, job);
-        states.delete(state.id);
+        if ((await convert(state, job)) === 'changed') {
+          // The source was replaced meanwhile: start over with the new file.
+          Object.assign(state, { status: 'queued', percent: 0 });
+          queue.push(state.id);
+        } else {
+          states.delete(state.id);
+        }
       } catch (err) {
         if (abort.signal.aborted) {
           states.delete(state.id);
+        } else if (await changedSince(state)) {
+          // Failed because the file was being replaced: start over with the new one.
+          Object.assign(state, { status: 'queued', percent: 0 });
+          queue.push(state.id);
         } else {
           Object.assign(state, { status: 'failed', percent: 0, error: err.message });
           logger.warn(`Conversion failed for "${state.file}": ${err.message}`);
@@ -323,6 +332,12 @@ export function createConversionManager(
         await Promise.all(job.temps.map((t) => fs.rm(t, { force: true })));
       }
     }
+  }
+
+  /** True when the movie's file still exists but isn't the one the conversion started from. */
+  async function changedSince(state) {
+    const current = await fs.stat(path.join(moviesPath, state.file)).catch(() => null);
+    return Boolean(current) && statKey(current) !== state.key;
   }
 
   /** `wanted`, or "Name (1).mp4"… when another file already has that name. */
@@ -359,25 +374,16 @@ export function createConversionManager(
     state.status = 'converting';
     logger.info(`Converting "${state.file}" (video: ${plan.video}, audio: ${plan.audio.map((a) => a.action).join('/') || 'none'})`);
 
-    const outputFile = await freeName(plan.outputFile, state.file);
-    const outputPath = path.join(moviesPath, outputFile);
+    // Final names are only picked when swapping (step 4): files can appear during a long encode.
+    const tempBase = path.join(moviesPath, plan.outputFile);
 
     // 1. Text subtitles → sidecar .srt files (MP4 can't keep them).
-    const dir = path.posix.dirname(outputFile);
-    const taken = new Set(
-      (await fs.readdir(path.dirname(outputPath))).map((name) => (dir === '.' ? name : `${dir}/${name}`)),
-    );
-    const sidecars = plan.subtitles.map((track) => {
-      const name = subtitleSidecarName(outputFile, track, taken);
-      taken.add(name);
-      const final = path.join(moviesPath, name);
-      return { index: track.index, final, path: tempPathFor(final) };
-    });
+    const sidecars = plan.subtitles.map((track, i) => ({ ...track, path: tempPathFor(`${tempBase}.${i}.srt`) }));
     job.temps.push(...sidecars.map((s) => s.path));
     if (sidecars.length) await ffmpeg(subtitleArgs(sourcePath, sidecars), { signal: abort.signal });
 
     // 2. Audio/video into a hidden temp file.
-    const tempPath = tempPathFor(outputPath);
+    const tempPath = tempPathFor(tempBase);
     job.temps.push(tempPath);
     const onProgress = createProgressParser((seconds) => {
       if (plan.duration) state.percent = Math.min(99, Math.floor((seconds / plan.duration) * 100));
@@ -389,15 +395,31 @@ export function createConversionManager(
     await fs.utimes(tempPath, source.atime, source.mtime); // keeps its place in "Ajoutés récemment"
 
     // 4. Swap files and update movies.json together, so a scan never sees half of it.
-    await runExclusive(async () => {
-      for (const s of sidecars) await fs.rename(s.path, s.final);
-      await fs.rename(tempPath, outputPath);
-      if (outputFile !== state.file) {
-        await fs.rm(sourcePath, { force: true });
-        await renameMovieEntry(config, state.file, outputFile);
+    const outputFile = await runExclusive(async () => {
+      const current = await fs.stat(sourcePath).catch(() => null);
+      if (!current) return null; // deleted meanwhile: nothing to replace
+      if (statKey(current) !== state.key) return 'changed';
+      const output = await freeName(plan.outputFile, state.file);
+      const dir = path.posix.dirname(output);
+      const taken = new Set(
+        (await fs.readdir(path.dirname(path.join(moviesPath, output)))).map((name) => (dir === '.' ? name : `${dir}/${name}`)),
+      );
+      for (const s of sidecars) {
+        const name = subtitleSidecarName(output, s, taken);
+        taken.add(name);
+        await fs.rename(s.path, path.join(moviesPath, name));
       }
+      await fs.rename(tempPath, path.join(moviesPath, output));
+      if (output !== state.file) {
+        await fs.rm(sourcePath, { force: true });
+        await renameMovieEntry(config, state.file, output);
+      }
+      return output;
     });
     plans.delete(state.file);
+    if (outputFile === 'changed') return 'changed';
+    if (!outputFile) return;
+    const outputPath = path.join(moviesPath, outputFile);
 
     // 5. Never check this file again (unless it changes).
     await tracking.record(outputFile, await fs.stat(outputPath), { converted: true, source: state.file });
