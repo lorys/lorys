@@ -673,6 +673,29 @@ button { font: inherit; cursor: pointer; }
 .progress > span { display: block; height: 100%; background: var(--accent); }
 .card__progress { position: absolute; left: 8px; right: 8px; bottom: 8px; border-radius: 2px; }
 
+/* ---------- Conversion ---------- */
+
+.card__conversion {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0.8rem;
+  background: rgba(0, 0, 0, 0.72);
+  color: var(--fg);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+}
+.card__conversion .progress { width: 100%; border-radius: 2px; }
+.card--failed .card__conversion { justify-content: flex-end; background: linear-gradient(transparent 50%, rgba(0, 0, 0, 0.85)); color: #e87c03; }
+.card--failed .card__conversion .progress { display: none; }
+.modal__conversion { margin: 1rem 0 0; font-size: 0.95rem; color: var(--fg); }
+.modal__conversion--failed { color: #e87c03; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .modal__actions { display: flex; gap: 0.8rem; }
 .modal__progress {
   display: flex;
