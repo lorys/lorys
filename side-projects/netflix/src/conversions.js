@@ -454,8 +454,12 @@ export function createConversionManager(
     async cleanup() {
       let removed = 0;
       for await (const file of walkTempFiles(moviesPath)) {
-        await fs.rm(file, { force: true });
-        removed++;
+        try {
+          await fs.rm(file, { force: true });
+          removed++;
+        } catch (err) {
+          logger.warn(`Cannot remove leftover conversion file ${file}: ${err.message}`); // e.g. read-only library
+        }
       }
       if (removed) logger.info(`Removed ${removed} leftover conversion file(s)`);
       return removed;

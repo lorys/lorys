@@ -540,3 +540,19 @@ test('watcher calls onChecked after every check, even when nothing was scanned',
     watcher.close();
   }
 });
+
+test('cleanup() never throws when the library is read-only', async () => {
+  const config = await makeLibrary('readonly');
+  const locked = path.join(config.moviesPath, 'locked');
+  await fs.mkdir(locked);
+  await fs.writeFile(path.join(locked, '.Old.mp4.converting'), 'x');
+  await fs.chmod(locked, 0o555);
+  const warnings = [];
+  const conversions = createConversionManager(config, { logger: { ...quiet, warn: (m) => warnings.push(m) } });
+  try {
+    assert.equal(await conversions.cleanup(), 0);
+    assert.equal(warnings.length, 1);
+  } finally {
+    await fs.chmod(locked, 0o755);
+  }
+});
