@@ -528,11 +528,14 @@ window.addEventListener('pagehide', () => saveProgress({ keepalive: true }));
 $('player-back').addEventListener('click', closePlayer);
 
 document.addEventListener('keydown', (event) => {
+  console.log("Debug key", event);
   if (event.key === 'Enter') {
     // Enter anywhere on the catalogue (but not while typing or on a focused button) opens downloads.
     const busy = !$('player').hidden || !$('modal').hidden || !$('downloads').hidden || $('browse-view').hidden;
+    console.log({busy}, event.target.closest('input, textarea, select, button, a'));
     if (busy || event.target.closest('input, textarea, select, button, a')) return;
     event.preventDefault();
+    console.log("opendownloads");
     openDownloads();
     return;
   }
