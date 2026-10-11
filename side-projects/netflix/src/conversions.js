@@ -241,8 +241,8 @@ export function createConversionManager(
   }
 
   /**
-   * Resolves with the file's stat once its size hasn't changed for `stableMs` (still being copied
-   * or downloaded otherwise). A file not modified for that long is stable right away.
+   * Resolves with the file's stat once it hasn't changed for `stableMs` (still being copied or
+   * downloaded otherwise). A file not modified for that long is stable right away.
    */
   async function waitUntilStable(full) {
     let before = await fs.stat(full);
@@ -250,7 +250,8 @@ export function createConversionManager(
       if (Date.now() - before.mtimeMs >= stableMs) return before;
       await sleep(stableMs, null, { signal: abort.signal });
       const after = await fs.stat(full);
-      if (after.size === before.size) return after;
+      // Size and mtime: preallocated files (torrents, rsync --inplace) keep their size while written.
+      if (statKey(after) === statKey(before)) return after;
       before = after;
     }
   }

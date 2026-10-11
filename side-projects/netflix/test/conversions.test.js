@@ -500,3 +500,24 @@ test('a source replaced during the conversion is kept and converted again', { sk
   assert.ok(Math.abs(Number(format.duration) - 3) < 0.5, `the new file was converted (got ${format.duration} s)`);
   assert.equal(conversions.status(movie.id), null);
 });
+
+test('a preallocated file still being written (same size, new mtime) is not stable yet', { skip: !hasFfmpeg }, async () => {
+  const movie = { id: 'prealloc0000', file: 'Torrent.mkv' };
+  const config = await makeLibrary('prealloc', [movie]);
+  const complete = path.join(dir, 'prealloc', 'complete.mkv');
+  await makeIncompatibleMkv(complete);
+  const bytes = await fs.readFile(complete);
+  const target = path.join(config.moviesPath, 'Torrent.mkv');
+  // Like a torrent client: full size from the start, pieces written over time.
+  await fs.writeFile(target, Buffer.alloc(bytes.length));
+  const conversions = createConversionManager(config, { logger: quiet, stableMs: 300 });
+  const enqueued = conversions.enqueue(movie);
+  await new Promise((r) => setTimeout(r, 150));
+  await fs.writeFile(target, Buffer.alloc(bytes.length));
+  await new Promise((r) => setTimeout(r, 300));
+  await fs.writeFile(target, bytes);
+  await enqueued;
+  await conversions.idle();
+  assert.equal(conversions.status(movie.id), null, 'probed once complete, not while being written');
+  assert.ok(await fs.stat(path.join(config.moviesPath, 'Torrent.mp4')));
+});
