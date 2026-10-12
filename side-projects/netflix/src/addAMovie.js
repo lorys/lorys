@@ -92,7 +92,7 @@ export async function addAMovie(name) {
 
     console.log({ allQualities });
 
-    let allAvailableQualities = [currentMovieData, ...allQualities];
+    let allAvailableQualities = [currentMovieData, ...(allQualities.map(e => e.value))];
     allAvailableQualities.sort((a, b) => parseFloat(a.size) - parseFloat(b.size));
 
     console.log({ allAvailableQualities });
