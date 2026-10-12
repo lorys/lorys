@@ -626,6 +626,29 @@ button { font: inherit; cursor: pointer; }
 }
 .player__toast--on { opacity: 1; }
 
+/* "Épisode suivant": over the credits, fills up during the countdown. */
+.player__next {
+  position: absolute;
+  right: clamp(1rem, 3vw, 2.5rem);
+  bottom: clamp(7rem, 16cqh, 10rem);
+  z-index: 3;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  padding: 0.9rem 1.4rem;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.9);
+  color: black;
+  text-align: left;
+  cursor: pointer;
+}
+.player__next:hover, .player__next:focus-visible { background: white; outline: none; }
+.player__next-bar { position: absolute; inset: 0 auto 0 0; width: 0; background: rgba(0, 0, 0, 0.18); transition: width 0.25s linear; }
+.player__next-text { position: relative; display: flex; flex-direction: column; gap: 0.15rem; }
+.player__next-text strong { font-size: 1.05rem; }
+.player__next-text span { max-width: 32ch; overflow: hidden; color: #333; font-size: 0.85rem; text-overflow: ellipsis; white-space: nowrap; }
+
 .player__error {
   position: absolute;
   inset: 0;

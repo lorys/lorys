@@ -10,6 +10,13 @@ const SEEK_STEP = 10;
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5];
 const SUBS_PREF_KEY = 'cineflix.subtitles';
 const VOLUME_PREF_KEY = 'cineflix.volume';
+const NEXT_COUNTDOWN_MS = 10_000;
+const NEXT_TICK_MS = 250;
+
+/** Same rule as the server's isFinished: only the credits are left (last 5%, at least 1 min). */
+export function inCredits(position, duration) {
+  return duration - position <= Math.max(60, duration * 0.05);
+}
 
 export function formatTime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
@@ -42,6 +49,10 @@ export function createPlayer({ onBack }) {
   let activeTrack = null;
   // Bumped on every open/close so late subtitle-list responses for a previous movie are ignored.
   let session = 0;
+  // { label, onPlay } of the episode offered over the credits, and its countdown.
+  let next = null;
+  let countdownTimer = null;
+  let countdownLeft = 0;
 
   // ---------- Chrome visibility ----------
 
@@ -454,6 +465,46 @@ export function createPlayer({ onBack }) {
 
   for (const button of root.querySelectorAll('[data-player-back]')) button.addEventListener('click', onBack);
 
+  // ---------- Next episode ----------
+
+  const nextBtn = $('player-next');
+
+  function hideNext() {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+    nextBtn.hidden = true;
+    $('player-next-bar').style.width = '0';
+  }
+
+  function playNext() {
+    const target = next;
+    next = null;
+    hideNext();
+    target?.onPlay();
+  }
+
+  // Shown over the credits; seeking back before them hides it and resets the countdown.
+  function renderNext() {
+    const { currentTime, duration } = video;
+    if (!next || !Number.isFinite(duration) || !duration || !inCredits(currentTime, duration)) {
+      hideNext();
+      return;
+    }
+    if (countdownTimer) return;
+    $('player-next-label').textContent = next.label;
+    nextBtn.hidden = false;
+    countdownLeft = NEXT_COUNTDOWN_MS;
+    countdownTimer = setInterval(() => {
+      if (video.paused) return; // the countdown waits while the video is paused
+      countdownLeft -= NEXT_TICK_MS;
+      $('player-next-bar').style.width = `${(1 - countdownLeft / NEXT_COUNTDOWN_MS) * 100}%`;
+      if (countdownLeft <= 0) playNext();
+    }, NEXT_TICK_MS);
+  }
+
+  nextBtn.addEventListener('click', playNext);
+  video.addEventListener('timeupdate', renderNext);
+
   // ---------- Keyboard ----------
 
   /** Returns true when the key was handled by the player. */
@@ -508,15 +559,17 @@ export function createPlayer({ onBack }) {
 
   // ---------- Open / close ----------
 
-  function open(nextMovie, { startAt = 0 } = {}) {
+  function open(nextMovie, { startAt = 0, title = nextMovie.title, next: upNext = null } = {}) {
     movie = nextMovie;
+    next = upNext;
+    hideNext();
     session++;
     for (const el of video.querySelectorAll('track')) el.remove();
     activeTrack = null;
     subsLayer.replaceChildren();
     $('player-error').hidden = true;
-    $('player-title').textContent = movie.title;
-    $('player-paused-title').textContent = movie.title;
+    $('player-title').textContent = title;
+    $('player-paused-title').textContent = title;
     $('player-paused-meta').textContent = [movie.year, movie.genres?.slice(0, 2).join(', ')].filter(Boolean).join(' · ');
     $('player-paused-overview').textContent = movie.overview || '';
     $('player-remaining').textContent = '';
@@ -546,6 +599,8 @@ export function createPlayer({ onBack }) {
   function close() {
     session++;
     movie = null;
+    next = null;
+    hideNext();
     clearTimeout(idleTimer);
     clearTimeout(pausedInfoTimer);
     closeMenus();
