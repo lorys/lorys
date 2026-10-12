@@ -103,7 +103,7 @@ export async function addAMovie(name) {
 
     return {
         movieName: bestQuality.movieName,
-        imgUrl: bestQuality.imgUrl,
+        imgUrl: `https://${ztdomain}${bestQuality.imgUrl}`,
         size: bestQuality.size,
         download: async () => {
             const data = await api("/link/unlock", { link: bestQuality.protectedDownloadLink });
