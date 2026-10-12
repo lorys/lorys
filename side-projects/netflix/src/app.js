@@ -118,10 +118,11 @@ export function buildApp(config, { logger = true, conversions } = {}) {
   app.get('/api/me', { preHandler: requireUser }, async (request) => ({ username: request.user }));
 
   app.get('/api/movies', { preHandler: requireUser }, async () => {
-    const { updatedAt, movies } = await getInfos();
+    const { updatedAt, movies, shows } = await getInfos();
     // `parsed` and `size` are scanner internals; the frontend doesn't need them.
     return {
       updatedAt,
+      shows,
       movies: movies.map(({ parsed, size, ...movie }) => {
         const conversion = conversions.status(movie.id);
         return conversion ? { ...movie, conversion } : movie;
@@ -133,13 +134,23 @@ export function buildApp(config, { logger = true, conversions } = {}) {
 
   // ---------- Watch progress (stored per account in ACCOUNTS_PATH) ----------
 
+  // Hide entries of movies that are no longer in the library (kept in case they come back).
+  const onlyInLibrary = async (record = {}) => {
+    const ids = new Set((await getInfos()).movies.map((m) => m.id));
+    return Object.fromEntries(Object.entries(record).filter(([id]) => ids.has(id)));
+  };
+
   app.get('/api/progress', { preHandler: requireUser }, async (request, reply) => {
     const account = (await accounts.read()).find((a) => a.username === request.user);
     if (!account) return reply.code(401).send({ error: 'Compte introuvable' });
-    const { movies } = await getInfos();
-    const ids = new Set(movies.map((m) => m.id));
-    // Hide progress of movies that are no longer in the library (kept in case they come back).
-    return Object.fromEntries(Object.entries(account.progress ?? {}).filter(([id]) => ids.has(id)));
+    return onlyInLibrary(account.progress);
+  });
+
+  // Movies and episodes watched to the end: tells which episode of a show comes next.
+  app.get('/api/watched', { preHandler: requireUser }, async (request, reply) => {
+    const account = (await accounts.read()).find((a) => a.username === request.user);
+    if (!account) return reply.code(401).send({ error: 'Compte introuvable' });
+    return onlyInLibrary(account.watched);
   });
 
   const progressParams = {
@@ -161,20 +172,27 @@ export function buildApp(config, { logger = true, conversions } = {}) {
       const { movies } = await getInfos();
       if (!movies.some((m) => m.id === request.params.id)) return reply.code(404).send({ error: 'Film introuvable' });
       const { position, duration } = request.body;
-      const entry = isFinished(position, duration)
+      const finished = isFinished(position, duration);
+      const entry = finished
         ? null
         : { position: Math.min(Math.round(position), Math.floor(duration)), duration: Math.round(duration), updatedAt: new Date().toISOString() };
+      const watchedAt = finished ? new Date().toISOString() : null;
       const found = await accounts.update((list) => {
         const account = list.find((a) => a.username === request.user);
         if (!account) return false;
         account.progress ??= {};
-        // A finished movie leaves "continue watching".
-        if (entry) account.progress[request.params.id] = entry;
-        else delete account.progress[request.params.id];
+        // A finished movie leaves "continue watching" and is remembered as watched.
+        if (entry) {
+          account.progress[request.params.id] = entry;
+        } else {
+          delete account.progress[request.params.id];
+          account.watched ??= {};
+          account.watched[request.params.id] = watchedAt;
+        }
         return true;
       });
       if (!found) return reply.code(401).send({ error: 'Compte introuvable' });
-      return { progress: entry };
+      return { progress: entry, watched: watchedAt };
     },
   });
 

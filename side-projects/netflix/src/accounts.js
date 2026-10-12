@@ -1,9 +1,10 @@
-// Accounts are a JSON array of { username, password, progress? } encrypted with AES-256-GCM.
+// Accounts are a JSON array of { username, password, progress?, watched? } encrypted with AES-256-GCM.
 // File layout (base64): salt(16) | iv(12) | authTag(16) | ciphertext.
 // The key is derived from ACCOUNTS_SECRET with scrypt and the per-file salt.
 // Passwords may be stored in clear (inside the encrypted file) or as
 // "scrypt:<salt>:<hash>" hashes, which is what the accounts CLI writes.
 // `progress` maps a movie id to { position, duration, updatedAt } (seconds / ISO date).
+// `watched` maps a movie or episode id to the ISO date it was last watched to the end.
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import { promisify } from 'node:util';

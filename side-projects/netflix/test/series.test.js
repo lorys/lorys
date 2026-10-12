@@ -6,6 +6,8 @@ import path from 'node:path';
 import { parseEpisodeFilename, parseMovieFilename, showKey } from '../src/filename.js';
 import { createTmdbClient } from '../src/tmdb.js';
 import { readMoviesInfos, renameMovieEntry, scanMovies } from '../src/scanner.js';
+import { buildApp } from '../src/app.js';
+import { hashPassword, readAccounts, writeAccounts } from '../src/accounts.js';
 
 const ep = (showTitle, season, episode, extra = {}) => ({ showTitle, year: null, season, episode, episodeEnd: episode, ...extra });
 
@@ -290,4 +292,50 @@ test('readMoviesInfos defaults shows for files written before series support', a
   assert.deepEqual(await readMoviesInfos(config.moviesInfosPath), { updatedAt: null, movies: [], shows: {} });
   await fs.writeFile(config.moviesInfosPath, JSON.stringify({ updatedAt: 'x', movies: [] }));
   assert.deepEqual(await readMoviesInfos(config.moviesInfosPath), { updatedAt: 'x', movies: [], shows: {} });
+});
+
+// ---------- HTTP API ----------
+
+test('HTTP API: shows in the movie list and watched episodes', async () => {
+  const config = await library('api', ['Breaking.Bad.S01E01.mkv', 'Breaking.Bad.S01E02.mkv']);
+  await scanMovies(config, { tmdb: fakeTmdb(), logger: quiet });
+  await writeAccounts(
+    config.accountsPath,
+    [{ username: 'lorys', password: hashPassword('pw'), watched: { ffffffffffff: '2026-01-01T00:00:00.000Z' } }],
+    config.accountsSecret,
+  );
+  const app = buildApp(config, { logger: false });
+  try {
+    assert.equal((await app.inject('/api/watched')).statusCode, 401);
+    const login = await app.inject({ method: 'POST', url: '/api/login', payload: { username: 'lorys', password: 'pw' } });
+    const cookies = { session: login.cookies.find((c) => c.name === 'session').value };
+
+    const { movies, shows } = (await app.inject({ url: '/api/movies', cookies })).json();
+    assert.equal(shows['breaking bad'].title, 'Breaking Bad');
+    assert.equal(movies.length, 2);
+    assert.equal(movies[0].parsed, undefined);
+    const [e1] = movies;
+
+    assert.deepEqual((await app.inject({ url: '/api/watched', cookies })).json(), {}, 'items not in the library are hidden');
+
+    const halfway = await app.inject({ method: 'PUT', url: `/api/progress/${e1.id}`, cookies, payload: { position: 600, duration: 2800 } });
+    assert.equal(halfway.json().watched, null);
+
+    const done = await app.inject({ method: 'PUT', url: `/api/progress/${e1.id}`, cookies, payload: { position: 2800, duration: 2800 } });
+    assert.equal(done.json().progress, null);
+    assert.match(done.json().watched, /^\d{4}-\d\d-\d\dT/);
+    const watched = (await app.inject({ url: '/api/watched', cookies })).json();
+    assert.deepEqual(Object.keys(watched), [e1.id]);
+    assert.equal(watched[e1.id], done.json().watched);
+
+    // Starting it over doesn't forget it was watched.
+    await app.inject({ method: 'DELETE', url: `/api/progress/${e1.id}`, cookies });
+    assert.deepEqual(Object.keys((await app.inject({ url: '/api/watched', cookies })).json()), [e1.id]);
+
+    const [account] = await readAccounts(config.accountsPath, config.accountsSecret);
+    assert.equal(account.watched[e1.id], done.json().watched);
+    assert.ok(account.watched.ffffffffffff, 'entries of missing items are kept in case they come back');
+  } finally {
+    await app.close();
+  }
 });
