@@ -36,8 +36,9 @@ A Netflix-like streaming site for a local movie folder, served with Fastify. No 
   (H.264 + AAC) and **replace the original file** (`.mkv`/`.avi`… become `.mp4`; watch progress and
   TMDB data are kept). Containers are remuxed without loss; audio other than AAC/MP3/Opus is
   re-encoded to AAC (every track kept, French as default, 5.1 kept); video other than 8-bit H.264
-  (HEVC/x265, 10-bit, MPEG-2, Xvid…) is re-encoded to H.264 CRF 18 (visually lossless, preset fast: roughly
-  30 min–1.5 h per 1080p movie on CPU). HDR is tone-mapped to SDR. Embedded text subtitles are extracted to
+  (HEVC/x265, 10-bit, MPEG-2, Xvid…) is re-encoded to H.264, with Intel Quick Sync (VAAPI, `VAAPI_DEVICE`)
+  when ffmpeg can use it, otherwise on the CPU (libx264 CRF 18, preset veryfast); a file Quick Sync fails on
+  is retried on the CPU. Video bigger than 1080p (4K) is downscaled to fit 1920×1080. HDR is tone-mapped to SDR. Embedded text subtitles are extracted to
   `.srt` files next to the movie first. One conversion at a time; the catalogue shows
   "Conversion en cours (X %)" and the movie can't be played meanwhile. Runs at startup on the whole
   library (`CONVERT_ON_START=false` to disable) and on every new movie; a file is only converted once
@@ -73,6 +74,9 @@ npm start              # http://localhost:3000
 
 - Browsers play mp4 (H.264/AAC) natively; other files are converted automatically (see **Conversion**),
   which needs `ffmpeg` and a writable `MOVIES_PATH`. Converted files replace the originals for good.
+- Docker with Quick Sync: pass the Intel GPU's render node and its group to the container (the app runs
+  as `node`), e.g. `--device /dev/dri/by-path/pci-0000:00:02.0-render:/dev/dri/renderD128 --group-add
+  "$(getent group render | cut -d: -f3)"`. The log says at startup whether VAAPI is used.
 - Extracting an embedded subtitle track reads the whole video file, so the first time a track is
   picked on a large mkv it can take a little while before the subtitles appear.
 - Downloads need `MOVIES_PATH` to be writable. Any logged-in user can make the server fetch an

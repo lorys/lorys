@@ -1,7 +1,8 @@
 FROM node:22-alpine
 
 # ffmpeg reads the subtitle tracks embedded in mkv/mp4 files and converts movies browsers can't play.
-RUN apk add --no-cache ffmpeg
+# libva-intel-driver: Intel Quick Sync (Haswell…Skylake) for H.264 encoding, used when /dev/dri is passed in.
+RUN apk add --no-cache ffmpeg libva-intel-driver
 
 WORKDIR /app
 

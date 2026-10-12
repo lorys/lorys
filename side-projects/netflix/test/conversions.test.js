@@ -120,12 +120,37 @@ test('ffmpegArgs re-encodes video with x264, downmixes and tone-maps HDR when zs
   const args = ffmpegArgs(plan, 'in', 'out', { zscale: true });
   const video = args.slice(args.indexOf('-c:v'), args.indexOf('-c:a:0'));
   assert.deepEqual(video, [
-    '-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-pix_fmt', 'yuv420p',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p',
     '-vf', 'zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p',
     '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709',
   ]);
   assert.ok(args.join(' ').includes('-c:a:0 aac -b:a:0 640k -ac:a:0 6 -disposition:a:0 default'));
   assert.ok(!ffmpegArgs(plan, 'in', 'out', { zscale: false }).includes('-vf'));
+});
+
+test('planConversion downscales video bigger than 1080p', () => {
+  const plan = (width, height) => planConversion(probeOf({ ...h264, codec_name: 'hevc', width, height }), 'F.mkv').downscale;
+  assert.equal(plan(3840, 2160), true);
+  assert.equal(plan(3840, 1600), true);
+  assert.equal(plan(1920, 1080), false);
+  assert.equal(plan(1920, 800), false);
+});
+
+test('ffmpegArgs downscales before tone mapping and encodes with VAAPI when given a device', () => {
+  const plan = planConversion(
+    probeOf({ ...h264, codec_name: 'hevc', color_transfer: 'smpte2084', width: 3840, height: 2160 }, aac(1)),
+    'F.mkv',
+  );
+  const args = ffmpegArgs(plan, 'in', 'out', { zscale: true, vaapi: '/dev/dri/renderD128' });
+  assert.deepEqual(args.slice(0, 9), ['-hide_banner', '-v', 'error', '-nostdin', '-y', '-vaapi_device', '/dev/dri/renderD128', '-i', 'in']);
+  assert.deepEqual(args.slice(args.indexOf('-c:v'), args.indexOf('-c:a:0')), [
+    '-c:v', 'h264_vaapi', '-rc_mode', 'CQP', '-qp', '20', '-profile:v', 'high',
+    '-vf', 'scale=w=1920:h=1080:force_original_aspect_ratio=decrease:force_divisible_by=2,zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p,format=nv12,hwupload',
+    '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709',
+  ]);
+  // Remuxing never touches the GPU.
+  const copy = planConversion(probeOf(h264, aac(1)), 'F.mkv');
+  assert.ok(!ffmpegArgs(copy, 'in', 'out', { vaapi: '/dev/dri/renderD128' }).includes('-vaapi_device'));
 });
 
 test('subtitleArgs extracts every track to SRT in one pass', () => {

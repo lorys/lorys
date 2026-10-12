@@ -20,6 +20,8 @@ const HDR_TRANSFERS = new Set(['smpte2084', 'arib-std-b67']);
 // HDR → SDR BT.709 (needs ffmpeg built with zimg).
 const TONEMAP_FILTER =
   'zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p';
+// Bigger than 1080p (4K…) → fits in 1920×1080, done first so tone mapping and encoding see 4× fewer pixels.
+const DOWNSCALE_FILTER = 'scale=w=1920:h=1080:force_original_aspect_ratio=decrease:force_divisible_by=2';
 
 function defaultAudio(tracks) {
   const french = tracks.findIndex((s) => FRENCH.has(s.tags?.language?.toLowerCase()));
@@ -54,6 +56,7 @@ export function planConversion(probe, file) {
     videoIndex: video.index,
     video: copyVideo ? 'copy' : 'x264',
     hdr: HDR_TRANSFERS.has(video.color_transfer),
+    downscale: video.width > 1920 || video.height > 1080,
     audio,
     subtitles: streams
       .filter((s) => s.codec_type === 'subtitle' && TEXT_SUBTITLES.has(s.codec_name))
@@ -63,16 +66,27 @@ export function planConversion(probe, file) {
   };
 }
 
-export function ffmpegArgs(plan, inputPath, outputPath, { zscale = false } = {}) {
-  const args = ['-hide_banner', '-v', 'error', '-nostdin', '-y', '-i', inputPath, '-map', `0:${plan.videoIndex}`];
+/** `vaapi`: render node to encode on (Intel Quick Sync); decoding and filters stay on the CPU. */
+export function ffmpegArgs(plan, inputPath, outputPath, { zscale = false, vaapi = null } = {}) {
+  const encode = plan.video !== 'copy';
+  const args = ['-hide_banner', '-v', 'error', '-nostdin', '-y'];
+  if (encode && vaapi) args.push('-vaapi_device', vaapi);
+  args.push('-i', inputPath, '-map', `0:${plan.videoIndex}`);
   for (const a of plan.audio) args.push('-map', `0:${a.index}`);
-  if (plan.video === 'copy') {
+  if (!encode) {
     args.push('-c:v', 'copy');
   } else {
-    args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-pix_fmt', 'yuv420p');
-    if (plan.hdr && zscale) {
-      args.push('-vf', TONEMAP_FILTER, '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709');
+    const tonemap = plan.hdr && zscale;
+    const filters = [...(plan.downscale ? [DOWNSCALE_FILTER] : []), ...(tonemap ? [TONEMAP_FILTER] : [])];
+    if (vaapi) {
+      // Constant quality; Quick Sync needs more bits than x264 for the same look.
+      args.push('-c:v', 'h264_vaapi', '-rc_mode', 'CQP', '-qp', '20', '-profile:v', 'high');
+      filters.push('format=nv12', 'hwupload');
+    } else {
+      args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p');
     }
+    if (filters.length) args.push('-vf', filters.join(','));
+    if (tonemap) args.push('-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709');
   }
   plan.audio.forEach((a, i) => {
     if (a.action === 'copy') args.push(`-c:a:${i}`, 'copy');
@@ -223,7 +237,20 @@ export function createConversionManager(
   let worker = null;
   let tools = null;
 
-  /** ffmpeg + ffprobe installed? Also whether ffmpeg can tone-map HDR (zscale). */
+  /** True when ffmpeg can encode H.264 on `device` (driver, permissions and ffmpeg build all fine). */
+  async function vaapiWorks(device) {
+    if (!device) return false;
+    const args = ['-hide_banner', '-v', 'error', '-nostdin', '-vaapi_device', device, '-f', 'lavfi', '-i', 'testsrc=duration=0.2:size=320x240'];
+    args.push('-vf', 'format=nv12,hwupload', '-c:v', 'h264_vaapi', '-f', 'null', '-');
+    try {
+      await run('ffmpeg', args, { timeout: 30_000 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** ffmpeg + ffprobe installed? Also whether ffmpeg can tone-map HDR (zscale) and encode with VAAPI. */
   function checkTools() {
     tools ??= (async () => {
       try {
@@ -235,7 +262,10 @@ export function createConversionManager(
       const { stdout } = await run('ffmpeg', ['-hide_banner', '-filters'], { maxBuffer: 4 * 1024 * 1024 });
       const zscale = /\szscale\s/.test(stdout);
       if (!zscale) logger.warn('ffmpeg has no zscale filter: HDR movies will be converted without tone mapping');
-      return { zscale };
+      const vaapi = (await vaapiWorks(config.vaapiDevice)) ? config.vaapiDevice : null;
+      if (vaapi) logger.info(`Video is encoded with Intel Quick Sync (VAAPI, ${vaapi})`);
+      else if (config.vaapiDevice) logger.info(`VAAPI unavailable on ${config.vaapiDevice}: video is encoded on the CPU (libx264)`);
+      return { zscale, vaapi };
     })();
     return tools;
   }
@@ -365,7 +395,7 @@ export function createConversionManager(
   }
 
   async function convert(state, job) {
-    const { zscale } = await checkTools();
+    const { zscale, vaapi } = await checkTools();
     const sourcePath = path.join(moviesPath, state.file);
     // The file may have changed while it was queued.
     const source = await waitUntilStable(sourcePath);
@@ -389,7 +419,17 @@ export function createConversionManager(
     const onProgress = createProgressParser((seconds) => {
       if (plan.duration) state.percent = Math.min(99, Math.floor((seconds / plan.duration) * 100));
     });
-    await ffmpeg(ffmpegArgs(plan, sourcePath, tempPath, { zscale }), { signal: abort.signal, onStdout: onProgress });
+    const encode = (device) =>
+      ffmpeg(ffmpegArgs(plan, sourcePath, tempPath, { zscale, vaapi: device }), { signal: abort.signal, onStdout: onProgress });
+    try {
+      await encode(vaapi);
+    } catch (err) {
+      // Something Quick Sync can't take (odd size, profile…): the CPU can.
+      if (!vaapi || plan.video === 'copy' || abort.signal.aborted) throw err;
+      logger.warn(`VAAPI encoding failed for "${state.file}" (${err.message}), retrying on the CPU`);
+      state.percent = 0;
+      await encode(null);
+    }
 
     // 3. Check the result before throwing the original away.
     await verify(tempPath, plan);

@@ -16,5 +16,7 @@ export function loadConfig(env = process.env) {
     port: Number(env.PORT || 3000),
     scanOnStart: env.SCAN_ON_START !== 'false',
     convertOnStart: env.CONVERT_ON_START !== 'false',
+    // Intel Quick Sync (VAAPI) render node used to encode H.264; empty = always encode on the CPU.
+    vaapiDevice: env.VAAPI_DEVICE ?? '/dev/dri/renderD128',
   };
 }
