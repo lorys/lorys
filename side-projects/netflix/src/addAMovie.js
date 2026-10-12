@@ -106,7 +106,22 @@ export async function addAMovie(name) {
         imgUrl: `https://${ztdomain}${bestQuality.imgUrl}`,
         size: bestQuality.size,
         download: async () => {
-            const data = await api("/link/unlock", { link: bestQuality.protectedDownloadLink });
+
+            const url = bestQuality.protectedDownloadLink;
+
+            let links;
+            try {
+              const data = await api("/link/redirector", { link: url });
+              links = data.links;
+            } catch (e) {
+              // Pas un redirector : on traite l'URL comme un lien d'hébergeur classique
+              if (!/REDIRECTOR_NOT_SUPPORTED/.test(e.message)) throw e;
+              links = [url];
+            }
+
+            console.log("LINKS >", links);
+
+            const data = await api("/link/unlock", { link: links[0] });
 
             // Lien direct disponible immédiatement
             if (data.link) {
