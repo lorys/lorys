@@ -69,14 +69,22 @@ export async function addAMovie(name) {
         console.log("rawSize", rawSize.map(e => e.slice(0,3)));
         const size = rawSize?.[0]?.[1];
         const allQualityLinks = Array.from(ztcontent.matchAll(/(?<=Qualités également disponibles pour ce film:(?:(?!<\/div>)[\s\S])*?<a\b[^>]*\bhref=["'])[^"']+/g))?.map(e => e?.[0]);
-        const protectedDownloadLink = Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#fbaf4e">Rapidgator<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0];
+        const protectedDownloadLinkRapidgator = Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#fbaf4e">Rapidgator<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0];
+        const protectedDownloadLinkUploady = Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#c2107b">Uploady<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0];
+        const protectedDownloadLinkDailyUploads = Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#c442b5">DailyUploads<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0];
+        const protectedDownloadLinkDailyTurbobit = Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#f47445">Turbobit<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0];
 
         return {
             movieName,
             imgUrl,
             size,
             allQualityLinks,
-            protectedDownloadLink
+            protectedDownloadLinks: [
+                protectedDownloadLinkRapidgator,
+                protectedDownloadLinkUploady,
+                protectedDownloadLinkDailyUploads,
+                protectedDownloadLinkDailyTurbobit
+            ]
         }
     };
 
@@ -106,46 +114,51 @@ export async function addAMovie(name) {
         imgUrl: `https://${ztdomain}${bestQuality.imgUrl}`,
         size: bestQuality.size,
         download: async () => {
+            for (let a = 0; a < bestQuality.protectedDownloadLinks.length; a++) {
+                const url = bestQuality.protectedDownloadLinks[a];
+                try {
 
-            const url = bestQuality.protectedDownloadLink;
+                    let links;
+                    try {
+                      const data = await api("/link/redirector", { link: url });
+                      links = data.links;
+                    } catch (e) {
+                      // Pas un redirector : on traite l'URL comme un lien d'hébergeur classique
+                      if (!/REDIRECTOR_NOT_SUPPORTED/.test(e.message)) throw e;
+                      links = [url];
+                    }
 
-            let links;
-            try {
-              const data = await api("/link/redirector", { link: url });
-              links = data.links;
-            } catch (e) {
-              // Pas un redirector : on traite l'URL comme un lien d'hébergeur classique
-              if (!/REDIRECTOR_NOT_SUPPORTED/.test(e.message)) throw e;
-              links = [url];
-            }
+                    console.log("LINKS >", links);
 
-            console.log("LINKS >", links);
+                    const data = await api("/link/unlock", { link: links[0] });
 
-            const data = await api("/link/unlock", { link: links[0] });
+                    // Lien direct disponible immédiatement
+                    if (data.link) {
+                      return { link: data.link, filename: data.filename, filesize: data.filesize };
+                    }
 
-            // Lien direct disponible immédiatement
-            if (data.link) {
-              return { link: data.link, filename: data.filename, filesize: data.filesize };
-            }
+                    // Lien "delayed" : il faut poller /link/delayed jusqu'à ce qu'il soit prêt
+                    if (data.delayed) {
+                      const start = Date.now();
+                      while (Date.now() - start < MAX_WAIT_MS) {
+                        await sleep(POLL_INTERVAL_MS);
+                        const d = await api("/link/delayed", { id: data.delayed });
+                        if (d.status === 2) {
+                          return { link: d.link, filename: data.filename, filesize: data.filesize };
+                        }
+                        if (d.status === 3) {
+                          throw new Error("AllDebrid n'a pas pu générer le lien de téléchargement");
+                        }
+                      }
+                      throw new Error("Délai dépassé en attendant le lien AllDebrid");
+                    }
 
-            // Lien "delayed" : il faut poller /link/delayed jusqu'à ce qu'il soit prêt
-            if (data.delayed) {
-              const start = Date.now();
-              while (Date.now() - start < MAX_WAIT_MS) {
-                await sleep(POLL_INTERVAL_MS);
-                const d = await api("/link/delayed", { id: data.delayed });
-                if (d.status === 2) {
-                  return { link: d.link, filename: data.filename, filesize: data.filesize };
+                    // Cas des streams à plusieurs qualités (data.streams) : non géré ici
+                    throw new Error("Aucun lien direct renvoyé (stream à plusieurs qualités ?)");
+                } catch (err) {
+                    console.log("❌ Couldn't download", url, err);
                 }
-                if (d.status === 3) {
-                  throw new Error("AllDebrid n'a pas pu générer le lien de téléchargement");
-                }
-              }
-              throw new Error("Délai dépassé en attendant le lien AllDebrid");
             }
-
-            // Cas des streams à plusieurs qualités (data.streams) : non géré ici
-            throw new Error("Aucun lien direct renvoyé (stream à plusieurs qualités ?)");
         }
     };
 }
