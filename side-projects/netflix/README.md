@@ -75,8 +75,8 @@ npm start              # http://localhost:3000
 - Browsers play mp4 (H.264/AAC) natively; other files are converted automatically (see **Conversion**),
   which needs `ffmpeg` and a writable `MOVIES_PATH`. Converted files replace the originals for good.
 - Docker with Quick Sync: pass the Intel GPU's render node and its group to the container (the app runs
-  as `node`), e.g. `--device /dev/dri/by-path/pci-0000:00:02.0-render:/dev/dri/renderD128 --group-add
-  "$(getent group render | cut -d: -f3)"`. The log says at startup whether VAAPI is used.
+  as `node`), e.g. `--device "$(readlink -f /dev/dri/by-path/pci-0000:00:02.0-render)":/dev/dri/renderD128
+  --group-add "$(getent group render | cut -d: -f3)"` (Docker can't take the by-path name itself: it has colons). The log says at startup whether VAAPI is used.
 - Extracting an embedded subtitle track reads the whole video file, so the first time a track is
   picked on a large mkv it can take a little while before the subtitles appear.
 - Downloads need `MOVIES_PATH` to be writable. Any logged-in user can make the server fetch an
