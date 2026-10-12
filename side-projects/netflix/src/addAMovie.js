@@ -61,13 +61,13 @@ export async function addAMovie(name) {
     const getMovieDataFromPage = (ztcontent) => {
         const rawMovieName = Array.from(ztcontent.matchAll(/<div style="font-family: 'Ubuntu Condensed','Segoe UI',Verdana,Helvetica,sans-serif;font-size: 24px;letter-spacing: 0\.05em;color: #ff4d00;font-weight: bold;text-align: center;margin: 25px;">([^<]{0,})<\/div>/g));
         console.log("rawMovieName", rawMovieName.map(e => e.slice(0,3)));
-        const movieName = rawMovieName[0][1];
+        const movieName = rawMovieName?.[0]?.[1];
         const imgUrlRaw = Array.from(ztcontent.matchAll(/<center>[^<]{0,}<img src="([^"]{0,})" alt="/g));
         console.log("imgUrlRaw", imgUrlRaw.map(e => e.slice(0,3)));
-        const imgUrl = imgUrlRaw[0][1];
+        const imgUrl = imgUrlRaw?.[0]?.[1];
         const rawSize = Array.from(ztcontent.matchAll(/<strong>[^<]{0,}<u>Taille du fichier<\/u>[^<]{0,}:[^<]{0,}<\/strong>[\D]{0,}([^G]{0,}Go)/g));
         console.log("rawSize", rawSize.map(e => e.slice(0,3)));
-        const size = rawSize[0][1];
+        const size = rawSize?.[0]?.[1];
         const allQualityLinks = Array.from(ztcontent.matchAll(/(?<=Qualités également disponibles pour ce film:(?:(?!<\/div>)[\s\S])*?<a\b[^>]*\bhref=["'])[^"']+/g))?.map(e => e?.[0]);
         const protectedDownloadLink = Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#fbaf4e">Rapidgator<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0];
 
@@ -94,6 +94,8 @@ export async function addAMovie(name) {
 
     let allAvailableQualities = [currentMovieData, ...allQualities];
     allAvailableQualities.sort((a, b) => parseFloat(a.size) - parseFloat(b.size));
+
+    console.log({ allAvailableQualities });
 
     let bestQuality = allAvailableQualities.find(e => parseFloat(e.size) > 1.5 && parseFloat(e.size) < 5);
 
