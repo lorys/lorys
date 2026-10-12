@@ -72,6 +72,13 @@
           </div>
           <dl class="modal__credits" id="modal-credits"></dl>
         </div>
+        <section class="episodes" id="modal-episodes" hidden>
+          <div class="episodes__header">
+            <h3>Épisodes</h3>
+            <select id="modal-season" aria-label="Saison"></select>
+          </div>
+          <ol class="episodes__list" id="modal-episode-list"></ol>
+        </section>
       </article>
     </div>
 
@@ -202,6 +209,23 @@
           <span class="progress"><span></span></span>
         </span>
       </button>
+    </template>
+
+    <template id="episode-template">
+      <li>
+        <button class="episode">
+          <span class="episode__number"></span>
+          <span class="episode__still">
+            <img alt="" loading="lazy" />
+            <span class="progress episode__progress" hidden><span></span></span>
+          </span>
+          <span class="episode__text">
+            <span class="episode__head"><span class="episode__title"></span><span class="episode__runtime"></span></span>
+            <span class="episode__overview"></span>
+            <span class="episode__conversion" hidden></span>
+          </span>
+        </button>
+      </li>
     </template>
 
     <template id="download-template">

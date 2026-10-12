@@ -1,5 +1,6 @@
 import { searchMovies } from './search.js';
 import { createPlayer } from './player.js';
+import { episodeLabel, nextEpisode, showEpisodes, showResumeTarget } from './episodes.js';
 
 const IMG = 'https://image.tmdb.org/t/p';
 const $ = (id) => document.getElementById(id);
@@ -7,8 +8,12 @@ const $ = (id) => document.getElementById(id);
 const SAVE_INTERVAL_MS = 10_000;
 
 let movies = [];
+// showKey → TMDB data of a TV show; its episodes are in `movies`, with kind: 'episode'.
+let shows = {};
 // movieId → { position, duration, updatedAt }, from the user's account.
 let progress = {};
+// movieId → date it was last watched to the end.
+let watched = {};
 
 // ---------- API ----------
 
@@ -34,7 +39,7 @@ async function showBrowse(username) {
   $('login-view').hidden = true;
   $('browse-view').hidden = false;
   $('username').textContent = username;
-  [{ movies }, progress] = await Promise.all([api('/api/movies'), api('/api/progress')]);
+  [{ movies, shows }, progress, watched] = await Promise.all([api('/api/movies'), api('/api/progress'), api('/api/watched')]);
   renderHome();
   watchConversions();
 }
@@ -59,7 +64,9 @@ $('login-form').addEventListener('submit', async (event) => {
 $('logout-btn').addEventListener('click', async () => {
   await api('/api/logout', { method: 'POST' });
   movies = [];
+  shows = {};
   progress = {};
+  watched = {};
   clearTimeout(conversionsTimer);
   showLogin();
 });
@@ -87,6 +94,35 @@ function progressPercent(entry) {
 }
 
 const isConverting = (movie) => ['queued', 'converting'].includes(movie.conversion?.status);
+const isEpisode = (item) => item.kind === 'episode';
+const isShow = (item) => item.kind === 'show';
+const films = () => movies.filter((m) => !isEpisode(m));
+
+/** One item per show with episodes on disk; `addedAt` is its latest episode's. */
+function libraryShows() {
+  return Object.values(shows)
+    .map((show) => {
+      const episodes = showEpisodes(movies, show.key);
+      const addedAt = episodes.reduce((latest, e) => (e.addedAt > latest ? e.addedAt : latest), '');
+      return { ...show, kind: 'show', id: `show:${show.key}`, episodes, addedAt };
+    })
+    .filter((show) => show.episodes.length);
+}
+
+const resumeTarget = (show) => showResumeTarget(show.episodes, progress, watched);
+
+/** Progress shown for an item: the movie's, or the one of the show's episode in progress. */
+function itemProgress(item) {
+  if (!isShow(item)) return progress[item.id];
+  const target = resumeTarget(item);
+  return target.resume ? progress[target.episode.id] : undefined;
+}
+
+function playItem(item) {
+  if (!isShow(item)) return playMovie(item);
+  // After the last available episode, start the show over.
+  playMovie(resumeTarget(item).episode ?? item.episodes[0]);
+}
 
 function conversionLabel(conversion) {
   if (conversion.status === 'queued') return 'En attente de conversion';
@@ -107,33 +143,43 @@ function renderCardConversion(card, movie) {
 
 function buildCategories() {
   const categories = [];
-  const started = movies
-    .filter((m) => progress[m.id])
-    .sort((a, b) => progress[b.id].updatedAt.localeCompare(progress[a.id].updatedAt));
-  if (started.length) categories.push({ name: 'Reprendre la lecture', movies: started });
+  const list = films();
+  const series = libraryShows();
 
-  const recent = [...movies].sort((a, b) => b.addedAt.localeCompare(a.addedAt)).slice(0, 20);
+  // Started movies and shows, most recently watched first.
+  const started = [
+    ...list.filter((m) => progress[m.id]).map((m) => ({ item: m, date: progress[m.id].updatedAt })),
+    ...series
+      .map((show) => ({ item: show, target: resumeTarget(show) }))
+      .filter(({ target }) => target.episode && target.date)
+      .map(({ item, target }) => ({ item, date: target.date })),
+  ].sort((a, b) => b.date.localeCompare(a.date));
+  if (started.length) categories.push({ name: 'Reprendre la lecture', movies: started.map((s) => s.item) });
+
+  const recent = [...list].sort((a, b) => b.addedAt.localeCompare(a.addedAt)).slice(0, 20);
   if (recent.length) categories.push({ name: 'Ajoutés récemment', movies: recent });
 
-  const topRated = movies
+  const topRated = list
     .filter((m) => (m.voteAverage ?? 0) >= 7)
     .sort((a, b) => b.voteAverage - a.voteAverage)
     .slice(0, 20);
   if (topRated.length >= 3) categories.push({ name: 'Les mieux notés', movies: topRated });
 
+  if (series.length) categories.push({ name: 'Séries', movies: series.sort((a, b) => b.addedAt.localeCompare(a.addedAt)) });
+
   const byGenre = new Map();
-  for (const movie of movies) {
+  for (const movie of list) {
     for (const genre of movie.genres) {
       if (!byGenre.has(genre)) byGenre.set(genre, []);
       byGenre.get(genre).push(movie);
     }
   }
   const genres = [...byGenre.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], 'fr'));
-  for (const [name, list] of genres) {
-    categories.push({ name, movies: list.sort((a, b) => (b.voteAverage ?? 0) - (a.voteAverage ?? 0)) });
+  for (const [name, items] of genres) {
+    categories.push({ name, movies: items.sort((a, b) => (b.voteAverage ?? 0) - (a.voteAverage ?? 0)) });
   }
 
-  const unmatched = movies.filter((m) => !m.genres.length);
+  const unmatched = list.filter((m) => !m.genres.length);
   if (unmatched.length) categories.push({ name: 'Autres', movies: unmatched });
   return categories;
 }
@@ -152,7 +198,7 @@ function createCard(movie, { backdrop = false } = {}) {
   } else {
     img.remove();
   }
-  const entry = progress[movie.id];
+  const entry = itemProgress(movie);
   if (entry) {
     const bar = card.querySelector('.card__progress');
     bar.hidden = false;
@@ -168,7 +214,9 @@ function createCard(movie, { backdrop = false } = {}) {
 function renderHero() {
   const hero = $('hero');
   hero.replaceChildren();
-  const candidates = movies.filter((m) => m.backdropPath && m.overview && !isConverting(m));
+  const candidates = [...films(), ...libraryShows().filter((s) => s.matched)].filter(
+    (m) => m.backdropPath && m.overview && !isConverting(m),
+  );
   const pick = candidates[Math.floor(Math.random() * candidates.length)];
   if (!pick) {
     hero.hidden = true;
@@ -187,8 +235,8 @@ function renderHero() {
   actions.className = 'hero__actions';
   const play = document.createElement('button');
   play.className = 'btn btn--play';
-  play.textContent = progress[pick.id] ? '▶ Reprendre' : '▶ Lecture';
-  play.addEventListener('click', () => playMovie(pick));
+  play.textContent = itemProgress(pick) ? '▶ Reprendre' : '▶ Lecture';
+  play.addEventListener('click', () => playItem(pick));
   const info = document.createElement('button');
   info.className = 'btn btn--secondary';
   info.textContent = 'ⓘ Plus d’infos';
@@ -237,7 +285,7 @@ function renderSearch(query) {
     renderHome();
     return;
   }
-  const results = searchMovies(movies, query);
+  const results = searchMovies([...films(), ...libraryShows()], query);
   $('hero').hidden = true;
   $('rows').hidden = true;
   $('empty').hidden = true;
@@ -262,9 +310,39 @@ window.addEventListener('scroll', () => {
 // ---------- Modal ----------
 
 let modalMovie = null;
+// Season shown in the show modal.
+let modalSeason = null;
 
-function openModal(movie) {
+function openModal(item) {
+  if (isShow(item)) openShowModal(item);
+  else openMovieModal(item);
+  $('modal').hidden = false;
+  document.body.classList.add('no-scroll');
+}
+
+function renderCredits(entries) {
+  const credits = $('modal-credits');
+  credits.replaceChildren();
+  for (const [label, value] of entries) {
+    if (!value) continue;
+    const dt = document.createElement('dt');
+    dt.textContent = label;
+    const dd = document.createElement('dd');
+    dd.textContent = value;
+    credits.append(dt, dd);
+  }
+}
+
+function renderModalProgress(entry) {
+  $('modal-progress').hidden = !entry;
+  if (!entry) return;
+  $('modal-progress-bar').style.width = progressPercent(entry);
+  $('modal-remaining').textContent = formatRemaining(entry);
+}
+
+function openMovieModal(movie) {
   modalMovie = movie;
+  $('modal-episodes').hidden = true;
   $('modal-hero').style.backgroundImage = movie.backdropPath ? `url(${IMG}/w1280${movie.backdropPath})` : '';
   $('modal-title').textContent = movie.title;
   const meta = [
@@ -281,31 +359,98 @@ function openModal(movie) {
   const entry = progress[movie.id];
   $('modal-play').textContent = entry ? '▶ Reprendre' : '▶ Lecture';
   $('modal-restart').hidden = !entry;
-  $('modal-progress').hidden = !entry;
-  if (entry) {
-    $('modal-progress-bar').style.width = progressPercent(entry);
-    $('modal-remaining').textContent = formatRemaining(entry);
-  }
+  renderModalProgress(entry);
   renderModalConversion();
 
-  const credits = $('modal-credits');
-  credits.replaceChildren();
-  const addCredit = (label, value) => {
-    if (!value) return;
-    const dt = document.createElement('dt');
-    dt.textContent = label;
-    const dd = document.createElement('dd');
-    dd.textContent = value;
-    credits.append(dt, dd);
-  };
-  addCredit('Réalisation', movie.director);
-  addCredit('Distribution', movie.cast.join(', '));
-  if (movie.originalTitle && movie.originalTitle !== movie.title) addCredit('Titre original', movie.originalTitle);
-  addCredit('Fichier', movie.file);
-
-  $('modal').hidden = false;
-  document.body.classList.add('no-scroll');
+  renderCredits([
+    ['Réalisation', movie.director],
+    ['Distribution', movie.cast.join(', ')],
+    ['Titre original', movie.originalTitle !== movie.title && movie.originalTitle],
+    ['Fichier', movie.file],
+  ]);
 }
+
+function openShowModal(show) {
+  modalMovie = show;
+  $('modal-hero').style.backgroundImage = show.backdropPath ? `url(${IMG}/w1280${show.backdropPath})` : '';
+  $('modal-title').textContent = show.title;
+  const seasons = [...new Set(show.episodes.map((e) => e.season))];
+  $('modal-meta').textContent = [
+    show.voteAverage ? `★ ${show.voteAverage.toFixed(1)}` : '',
+    show.firstAirYear ? String(show.firstAirYear) : '',
+    seasons.length > 1 ? `${seasons.length} saisons` : '1 saison',
+    show.genres.join(', '),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  $('modal-tagline').textContent = '';
+  $('modal-overview').textContent = show.overview || 'Aucun résumé disponible.';
+  renderCredits([['Titre original', show.originalTitle !== show.title && show.originalTitle]]);
+
+  $('modal-season').replaceChildren(...seasons.map((n) => new Option(`Saison ${n}`, String(n))));
+  $('modal-episodes').hidden = false;
+  renderShowModal();
+  renderEpisodes((resumeTarget(show).episode ?? show.episodes[0]).season);
+}
+
+/** Play button and progress of the show modal: the episode "Lecture" would play. */
+function renderShowModal() {
+  const show = modalMovie;
+  const target = resumeTarget(show);
+  const episode = target.episode ?? show.episodes[0];
+  const entry = target.resume ? progress[episode.id] : null;
+  $('modal-play').textContent = `${entry ? '▶ Reprendre' : '▶ Lecture'} ${episodeLabel(episode)}`;
+  $('modal-play').disabled = isConverting(episode);
+  $('modal-restart').hidden = true;
+  $('modal-conversion').hidden = true;
+  renderModalProgress(entry);
+}
+
+function renderEpisodes(season) {
+  modalSeason = season;
+  $('modal-season').value = String(season);
+  const episodes = modalMovie.episodes.filter((e) => e.season === season);
+  $('modal-episode-list').replaceChildren(...episodes.map(createEpisodeRow));
+}
+
+function createEpisodeRow(episode) {
+  const row = $('episode-template').content.firstElementChild.cloneNode(true);
+  const button = row.querySelector('.episode');
+  row.querySelector('.episode__number').textContent = episodeLabel(episode).split('É')[1];
+  row.querySelector('.episode__title').textContent = episode.title;
+  row.querySelector('.episode__runtime').textContent = formatRuntime(episode.runtime);
+  row.querySelector('.episode__overview').textContent = episode.overview;
+
+  const img = row.querySelector('img');
+  if (episode.stillPath) {
+    img.src = `${IMG}/w300${episode.stillPath}`;
+    img.addEventListener('error', () => img.remove());
+  } else {
+    img.remove();
+  }
+
+  const entry = progress[episode.id];
+  const bar = row.querySelector('.episode__progress');
+  bar.hidden = !entry;
+  if (entry) bar.firstElementChild.style.width = progressPercent(entry);
+
+  const conversion = row.querySelector('.episode__conversion');
+  conversion.hidden = !episode.conversion;
+  if (episode.conversion) {
+    conversion.textContent = episode.conversion.status === 'failed' && episode.conversion.error
+      ? `${conversionLabel(episode.conversion)} : ${episode.conversion.error}`
+      : conversionLabel(episode.conversion);
+  }
+  row.classList.toggle('episode--failed', episode.conversion?.status === 'failed');
+  button.disabled = isConverting(episode);
+  button.addEventListener('click', () => {
+    closeModal();
+    playMovie(episode);
+  });
+  return row;
+}
+
+$('modal-season').addEventListener('change', (event) => renderEpisodes(Number(event.target.value)));
 
 function renderModalConversion() {
   const movie = modalMovie;
@@ -332,7 +477,7 @@ $('modal').addEventListener('click', (event) => {
 });
 $('modal-play').addEventListener('click', () => {
   closeModal();
-  playMovie(modalMovie);
+  playItem(modalMovie);
 });
 $('modal-restart').addEventListener('click', () => {
   closeModal();
@@ -365,7 +510,7 @@ async function refreshConversions() {
     }
     if (finished) {
       // Converted movies now point to a new file: reload the catalogue.
-      ({ movies } = await api('/api/movies'));
+      ({ movies, shows } = await api('/api/movies'));
       if ($('search-input').value.trim()) renderSearch($('search-input').value);
       else renderRows();
     } else {
@@ -375,8 +520,14 @@ async function refreshConversions() {
       }
     }
     if (!$('modal').hidden && modalMovie) {
-      modalMovie = movies.find((m) => m.id === modalMovie.id) ?? modalMovie;
-      renderModalConversion();
+      if (isShow(modalMovie)) {
+        modalMovie = libraryShows().find((s) => s.id === modalMovie.id) ?? modalMovie;
+        renderShowModal();
+        renderEpisodes(modalSeason);
+      } else {
+        modalMovie = movies.find((m) => m.id === modalMovie.id) ?? modalMovie;
+        renderModalConversion();
+      }
     }
   } catch {
     // Network hiccup: try again on the next tick.
@@ -528,13 +679,17 @@ $('downloads').addEventListener('click', (event) => {
 const player = createPlayer({ onBack: () => closePlayer() });
 const { video } = player;
 let playing = null;
+// Episode offered by the "Épisode suivant" countdown, and played when this one ends.
+let playingNext = null;
 let saveTimer = null;
 
 /** Persist the current position in the user's account. */
-function saveProgress({ keepalive = false } = {}) {
+function saveProgress({ keepalive = false, finished = false } = {}) {
   if (!playing || !video.duration || !Number.isFinite(video.duration) || video.currentTime < 1) return Promise.resolve();
   const movie = playing;
-  const body = JSON.stringify({ position: video.currentTime, duration: video.duration });
+  // `finished` (moving on to the next episode) records it as watched even before the credits end.
+  const position = finished ? video.duration : video.currentTime;
+  const body = JSON.stringify({ position, duration: video.duration });
   // keepalive lets the request finish when the tab is being closed.
   return fetch(`/api/progress/${movie.id}`, { method: 'PUT', body, keepalive, headers: { 'content-type': 'application/json' } })
     .then((res) => (res.ok ? res.json() : null))
@@ -542,6 +697,7 @@ function saveProgress({ keepalive = false } = {}) {
       if (!data) return;
       if (data.progress) progress[movie.id] = data.progress;
       else delete progress[movie.id];
+      if (data.watched) watched[movie.id] = data.watched;
     })
     .catch(() => {});
 }
@@ -566,8 +722,21 @@ async function playMovie(movie, { restart = false } = {}) {
   } else if (progress[movie.id]) {
     startAt = progress[movie.id].position;
   }
+  const next = isEpisode(movie) ? nextEpisode(showEpisodes(movies, movie.showKey), movie) : null;
+  playingNext = next;
   document.body.classList.add('no-scroll');
-  player.open(movie, { startAt });
+  player.open(movie, {
+    startAt,
+    title: isEpisode(movie) ? `${shows[movie.showKey]?.title ?? ''} · ${episodeLabel(movie)} · ${movie.title}` : movie.title,
+    next: next && { label: `${episodeLabel(next)} · ${next.title}`, onPlay: () => playNext(next) },
+  });
+}
+
+/** Leave the current episode as watched and start the next one from the beginning. */
+function playNext(next) {
+  stopAutoSave();
+  saveProgress({ finished: true });
+  playMovie(next, { restart: true });
 }
 
 function closePlayer() {
@@ -575,6 +744,7 @@ function closePlayer() {
   stopAutoSave();
   const saved = saveProgress();
   playing = null;
+  playingNext = null;
   player.close();
   document.body.classList.remove('no-scroll');
   // Refresh progress bars and the "Reprendre la lecture" row once the last save landed.
@@ -592,10 +762,10 @@ video.addEventListener('pause', () => {
 video.addEventListener('ended', () => {
   stopAutoSave();
   if (!playing) return;
-  delete progress[playing.id];
-  api(`/api/progress/${playing.id}`, { method: 'DELETE' }).catch(() => {});
-  // Back to the catalogue once the movie is over, like Netflix.
-  closePlayer();
+  // Straight to the next episode, otherwise back to the catalogue, like Netflix. Either way the
+  // last save lands at the very end, so the server records it as watched and clears its progress.
+  if (playingNext) playNext(playingNext);
+  else closePlayer();
 });
 window.addEventListener('pagehide', () => saveProgress({ keepalive: true }));
 

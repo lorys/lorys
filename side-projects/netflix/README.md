@@ -5,6 +5,11 @@ A Netflix-like streaming site for a local movie folder, served with Fastify. No 
 - **Movies**: every video file in `MOVIES_PATH` (recursive: mp4, m4v, mkv, webm, mov, avi, ogv).
 - **Metadata**: each filename is parsed (title + year, release tags stripped) and looked up on
   themoviedb.org **in French**; results are stored in `MOVIES_INFOS_PATH`.
+- **Series**: files named like `Show.S01E02…`, `Show.1x02…` or `Show.S01E01E02…` (the folder doesn't
+  matter) are episodes. They're grouped by show and looked up on TMDB's TV database (one lookup per show
+  and per season, in French). Shows have their own "Séries" row; their modal lists episodes by season,
+  and the player offers "Épisode suivant" with a 10 s countdown over the credits. Episodes watched to the
+  end are remembered per account (`watched` in the accounts file) to know where to pick a show up.
 - **Automatic sync**: the server watches `MOVIES_PATH` (fs events + a poll every minute) and rescans
   as soon as the set of files differs from `MOVIES_INFOS_PATH`. Scans are incremental: only new
   files (and previously unmatched ones) hit TMDB.
@@ -57,7 +62,7 @@ npm start              # http://localhost:3000
 | Command | |
 | --- | --- |
 | `npm start` / `npm run dev` | Start the server (dev = restart on code change) |
-| `npm run scan [-- --force]` | Sync `MOVIES_INFOS_PATH` now; `--force` refreshes every movie from TMDB |
+| `npm run scan [-- --force]` | Sync `MOVIES_INFOS_PATH` now; `--force` refreshes every movie and show from TMDB |
 | `npm run accounts -- add <user> <pass>` | Create a user or change their password (stored as a scrypt hash) |
 | `npm run accounts -- remove <user>` / `list` | |
 | `npm run accounts -- import <plain.json>` | Encrypt an existing `[{ username, password }]` file |
