@@ -826,6 +826,12 @@ button { font: inherit; cursor: pointer; }
 
 /* ---------- Add a movie ---------- */
 
+.add-movie__list { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 1rem; max-height: 60vh; overflow-y: auto; }
+.add-movie__choice { width: 100%; padding: 0; border: 0; background: none; color: inherit; text-align: left; cursor: pointer; }
+.add-movie__choice:hover .add-movie__poster, .add-movie__choice:focus-visible .add-movie__poster { outline: 2px solid white; }
+.add-movie__choice .add-movie__poster { width: 100%; display: block; }
+.add-movie__choice-name { display: block; margin-top: 0.4rem; font-size: 0.9rem; font-weight: 600; }
+.add-movie__choice-size { display: block; font-size: 0.8rem; color: var(--muted); }
 .add-movie__found { display: flex; gap: 1.5rem; align-items: flex-start; }
 .add-movie__poster { width: 140px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: var(--card-radius); background: #333; flex: 0 0 auto; }
 .add-movie__info h3 { margin: 0 0 0.4rem; font-size: 1.4rem; }

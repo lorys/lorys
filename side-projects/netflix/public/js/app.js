@@ -680,7 +680,9 @@ $('downloads').addEventListener('click', (event) => {
 
 // ---------- Add a movie by its exact name ----------
 
-// Movie found by the server, waiting for the user to confirm: { token, movieName, imgUrl, size }.
+// Movies found by the server, waiting for the user to pick one: [{ token, movieName, imgUrl, size }].
+let addMovieChoices = null;
+// The picked movie, waiting for the user to confirm.
 let addMovieFound = null;
 // Bumped on every request and on close, so a late answer doesn't land in a closed or reset modal.
 let addMovieRequest = 0;
@@ -694,12 +696,63 @@ function setAddMovieStatus(text, { error = false } = {}) {
 
 function showAddMovieForm() {
   addMovieRequest++;
+  addMovieChoices = null;
   addMovieFound = null;
   $('add-movie-form').hidden = false;
+  $('add-movie-choices').hidden = true;
   $('add-movie-found').hidden = true;
   $('add-movie-send').disabled = false;
   setAddMovieStatus('');
   $('add-movie-name').focus();
+}
+
+function renderAddMovieChoice(movie) {
+  const li = document.createElement('li');
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'add-movie__choice';
+  const poster = document.createElement('img');
+  poster.className = 'add-movie__poster';
+  poster.alt = `Affiche de ${movie.movieName}`;
+  if (movie.imgUrl) poster.src = movie.imgUrl;
+  const name = document.createElement('span');
+  name.className = 'add-movie__choice-name';
+  name.textContent = movie.movieName;
+  button.append(poster, name);
+  if (movie.size) {
+    const size = document.createElement('span');
+    size.className = 'add-movie__choice-size';
+    size.textContent = movie.size;
+    button.append(size);
+  }
+  button.addEventListener('click', () => showAddMovieConfirm(movie));
+  li.append(button);
+  return li;
+}
+
+function showAddMovieChoices() {
+  addMovieFound = null;
+  $('add-movie-list').replaceChildren(...addMovieChoices.map(renderAddMovieChoice));
+  $('add-movie-form').hidden = true;
+  $('add-movie-found').hidden = true;
+  $('add-movie-choices').hidden = false;
+  setAddMovieStatus('');
+  $('add-movie-list').querySelector('button')?.focus();
+}
+
+function showAddMovieConfirm(movie) {
+  addMovieFound = movie;
+  $('add-movie-found-name').textContent = movie.movieName;
+  $('add-movie-found-size').textContent = movie.size ? `Taille : ${movie.size}` : '';
+  $('add-movie-poster').hidden = !movie.imgUrl;
+  $('add-movie-poster').src = movie.imgUrl ?? '';
+  $('add-movie-poster').alt = `Affiche de ${movie.movieName}`;
+  $('add-movie-choices').hidden = true;
+  $('add-movie-found').hidden = false;
+  $('add-movie-confirm').disabled = false;
+  $('add-movie-back').disabled = false;
+  setAddMovieStatus('');
+  $('add-movie-confirm').focus();
 }
 
 function openAddMovie(name = '') {
@@ -711,6 +764,7 @@ function openAddMovie(name = '') {
 
 function closeAddMovie() {
   addMovieRequest++;
+  addMovieChoices = null;
   addMovieFound = null;
   $('add-movie').hidden = true;
   document.body.classList.remove('no-scroll');
@@ -724,20 +778,10 @@ $('add-movie-form').addEventListener('submit', async (event) => {
   $('add-movie-send').disabled = true;
   setAddMovieStatus('Recherche du film…');
   try {
-    const found = await api('/api/add-movie', { method: 'POST', body: JSON.stringify({ name }) });
+    const { movies } = await api('/api/add-movie', { method: 'POST', body: JSON.stringify({ name }) });
     if (request !== addMovieRequest) return;
-    addMovieFound = found;
-    $('add-movie-found-name').textContent = found.movieName;
-    $('add-movie-found-size').textContent = found.size ? `Taille : ${found.size}` : '';
-    $('add-movie-poster').hidden = !found.imgUrl;
-    $('add-movie-poster').src = found.imgUrl ?? '';
-    $('add-movie-poster').alt = `Affiche de ${found.movieName}`;
-    $('add-movie-form').hidden = true;
-    $('add-movie-found').hidden = false;
-    $('add-movie-confirm').disabled = false;
-    $('add-movie-back').disabled = false;
-    setAddMovieStatus('');
-    $('add-movie-confirm').focus();
+    addMovieChoices = movies;
+    showAddMovieChoices();
   } catch (err) {
     if (request !== addMovieRequest) return;
     $('add-movie-send').disabled = false;
@@ -746,7 +790,10 @@ $('add-movie-form').addEventListener('submit', async (event) => {
   }
 });
 
-$('add-movie-back').addEventListener('click', showAddMovieForm);
+$('add-movie-choices-back').addEventListener('click', showAddMovieForm);
+
+// Back to the list, unless the server already forgot this search (after a failed confirmation).
+$('add-movie-back').addEventListener('click', () => (addMovieChoices ? showAddMovieChoices() : showAddMovieForm()));
 
 $('add-movie-confirm').addEventListener('click', async () => {
   if (!addMovieFound) return;
@@ -762,7 +809,8 @@ $('add-movie-confirm').addEventListener('click', async () => {
     openDownloads();
   } catch (err) {
     if (request !== addMovieRequest) return;
-    // The server forgets the movie once confirmed, so a retry starts over from the name.
+    // The server forgets the whole search once a movie is confirmed, so a retry starts over from the name.
+    addMovieChoices = null;
     $('add-movie-back').disabled = false;
     setAddMovieStatus(err.message, { error: true });
   }

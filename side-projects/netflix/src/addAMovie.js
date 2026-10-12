@@ -47,28 +47,30 @@ export async function addAMovie(name) {
     const searchResult = await searchQ.text();
     const allResults = Array.from(searchResult.matchAll(/<a href="\?p=film(?:&amp;|&)id=([^"]*)"/g));
     console.log("allResults", allResults.map(e => e[1]));
-    const firstResult = allResults?.[0]?.[1];
+    const first10Result = allResults?.slice(0,10).map(e => e?.[0]?.[1]);
 
-    console.log({ firstResult });
+    console.log({ first10Result });
 
-    if (!firstResult)
+    if (!first10Result || !first10Result.length)
         return { ok: false, error: 'not found' };
 
-    console.log("fetching first result", `https://${ztdomain}/?p=film&id=${firstResult}`);
-    const movieQ = await fetch(`https://${ztdomain}/?p=film&id=${firstResult}`);
-    const movieData = await movieQ.text();
-
-    const getMovieDataFromPage = (ztcontent) => {
+    const getMovieDataFromPage = async (ztcontent) => {
+        
         const rawMovieName = Array.from(ztcontent.matchAll(/<div style="font-family: 'Ubuntu Condensed','Segoe UI',Verdana,Helvetica,sans-serif;font-size: 24px;letter-spacing: 0\.05em;color: #ff4d00;font-weight: bold;text-align: center;margin: 25px;">([^<]{0,})<\/div>/g));
-        console.log("rawMovieName", rawMovieName.map(e => e.slice(0,3)));
         const movieName = rawMovieName?.[0]?.[1];
+        
         const imgUrlRaw = Array.from(ztcontent.matchAll(/<center>[^<]{0,}<img src="([^"]{0,})" alt="/g));
-        console.log("imgUrlRaw", imgUrlRaw.map(e => e.slice(0,3)));
-        const imgUrl = imgUrlRaw?.[0]?.[1];
+        let imgUrl = imgUrlRaw?.[0]?.[1];
+        const reqImg = await fetch(`${ztdomain}${imgUrl}`);
+        const buffer = Buffer.from(await reqImg.arrayBuffer());
+        const mime = reqImg.headers.get("content-type") || "image/png";
+        imgUrl = `data:${mime};base64,${buffer.toString("base64")}`;
+
         const rawSize = Array.from(ztcontent.matchAll(/<strong>[^<]{0,}<u>Taille du fichier<\/u>[^<]{0,}:[^<]{0,}<\/strong>[\D]{0,}([^G]{0,}Go)/g));
-        console.log("rawSize", rawSize.map(e => e.slice(0,3)));
         const size = rawSize?.[0]?.[1];
+
         const allQualityLinks = Array.from(ztcontent.matchAll(/(?<=Qualités également disponibles pour ce film:(?:(?!<\/div>)[\s\S])*?<a\b[^>]*\bhref=["'])[^"']+/g))?.map(e => e?.[0]);
+
         const protectedDownloadLinks = [
             Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#fbaf4e">Rapidgator<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0],
             Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#c2107b">Uploady<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0],
@@ -88,34 +90,38 @@ export async function addAMovie(name) {
         }
     };
 
-    let currentMovieData = getMovieDataFromPage(movieData);
-    console.log({ currentMovieData });
-
-    const allQualities = await Promise.allSettled(currentMovieData.allQualityLinks.map(async (e) => {
-        console.log("allQualities", e, "fetching...");
-        const movieQ = await fetch(`https://${ztdomain}/${e}`);
+    const getBestQualities = async (movieId) => {
+        const movieQ = await fetch(`https://${ztdomain}/?p=film&id=${movieId}`);
         const movieData = await movieQ.text();
-        return getMovieDataFromPage(movieData);
-    }));
+        let currentMovieData = getMovieDataFromPage(movieData);
+        console.log({ currentMovieData });
 
-    console.log({ allQualities });
+        const allQualities = await Promise.allSettled(currentMovieData.allQualityLinks.map(async (e) => {
+            console.log("allQualities", e, "fetching...");
+            const movieQ = await fetch(`https://${ztdomain}/${e}`);
+            const movieData = await movieQ.text();
+            return getMovieDataFromPage(movieData);
+        }));
 
-    let allAvailableQualities = [currentMovieData, ...(allQualities.map(e => e.value))];
-    allAvailableQualities.sort((a, b) => parseFloat(a.size) - parseFloat(b.size));
+        let allAvailableQualities = [currentMovieData, ...(allQualities.map(e => e.value))];
+        allAvailableQualities.sort((a, b) => parseFloat(a.size) - parseFloat(b.size));
 
-    console.log({ allAvailableQualities });
+        let bestQuality = allAvailableQualities.find(e => parseFloat(e.size) > 2 && parseFloat(e.size) < 5);
 
-    let bestQuality = allAvailableQualities.find(e => parseFloat(e.size) > 2 && parseFloat(e.size) < 5);
+        return bestQuality || allAvailableQualities[0];
+    };
 
-    bestQuality = bestQuality || allAvailableQualities[0];
+    const results = await Promise.allSettled(first10Result.map(getBestQualities));
 
-    return {
-        movieName: bestQuality.movieName,
-        imgUrl: `https://${ztdomain}${bestQuality.imgUrl}`,
-        size: bestQuality.size,
+    console.log(JSON.stringify({ results }, null, 2));
+
+    return results.map(res => ({
+        movieName: res.value.movieName,
+        imgUrl: res.value.imgUrl,
+        size: res.value.size,
         download: async () => {
-            for (let a = 0; a < bestQuality.protectedDownloadLinks.length; a++) {
-                const url = bestQuality.protectedDownloadLinks[a];
+            for (let a = 0; a < res.value.protectedDownloadLinks.length; a++) {
+                const url = res.value.protectedDownloadLinks[a];
                 try {
 
                     let links;
@@ -160,5 +166,5 @@ export async function addAMovie(name) {
                 }
             }
         }
-    };
+    }));
 }

@@ -14,7 +14,7 @@ import { createDownloadManager } from './downloads.js';
 import { createSubtitlesService } from './subtitles.js';
 import { addAMovie } from './addAMovie.js';
 
-// A movie found by addAMovie() waits this long for the user to confirm the download.
+// Movies found by addAMovie() wait this long for the user to pick one and confirm the download.
 const PENDING_MOVIE_TTL_MS = 15 * 60_000;
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
@@ -243,8 +243,9 @@ export function buildApp(config, { logger = true, conversions } = {}) {
 
   // ---------- Adding a movie by its exact name (when a search finds nothing) ----------
 
-  // The `download` callback of each found movie stays here until the user confirms.
-  const pendingMovies = new Map(); // token → { username, download, expiresAt }
+  // The `download` callback of each found movie stays here until the user picks one and confirms.
+  // Movies found by the same search share a `search` id, so confirming one discards the others.
+  const pendingMovies = new Map(); // token → { username, search, download, expiresAt }
 
   const prunePendingMovies = () => {
     for (const [token, pending] of pendingMovies) {
@@ -271,18 +272,27 @@ export function buildApp(config, { logger = true, conversions } = {}) {
         request.log.error(err, 'addAMovie failed');
         return reply.code(502).send({ error: 'La recherche du film a échoué' });
       }
-      if (!found || found.ok === false) {
-        const notFound = !found || found.error === 'not found';
-        return reply.code(404).send({ error: notFound ? `Aucun film trouvé pour « ${name} »` : String(found.error) });
+      if (found && !Array.isArray(found) && found.ok === false && found.error !== 'not found') {
+        return reply.code(404).send({ error: String(found.error) });
       }
-      if (typeof found.download !== 'function') {
-        request.log.error({ found }, 'addAMovie returned no download callback');
-        return reply.code(502).send({ error: 'La recherche du film a échoué' });
+      const movies = Array.isArray(found) ? found.filter(Boolean) : [];
+      const invalid = movies.filter((movie) => typeof movie.download !== 'function');
+      if (invalid.length) request.log.error({ invalid: invalid.length }, 'addAMovie returned movies without a download callback');
+      const choices = movies.filter((movie) => typeof movie.download === 'function');
+      if (!choices.length) {
+        if (invalid.length) return reply.code(502).send({ error: 'La recherche du film a échoué' });
+        return reply.code(404).send({ error: `Aucun film trouvé pour « ${name} »` });
       }
       prunePendingMovies();
-      const token = crypto.randomBytes(12).toString('hex');
-      pendingMovies.set(token, { username: request.user, download: found.download, expiresAt: Date.now() + PENDING_MOVIE_TTL_MS });
-      return { token, movieName: found.movieName ?? name, imgUrl: found.imgUrl ?? null, size: found.size ?? null };
+      const search = crypto.randomBytes(12).toString('hex');
+      const expiresAt = Date.now() + PENDING_MOVIE_TTL_MS;
+      return {
+        movies: choices.map((movie) => {
+          const token = crypto.randomBytes(12).toString('hex');
+          pendingMovies.set(token, { username: request.user, search, download: movie.download, expiresAt });
+          return { token, movieName: movie.movieName ?? name, imgUrl: movie.imgUrl ?? null, size: movie.size ?? null };
+        }),
+      };
     },
   });
 
@@ -292,7 +302,9 @@ export function buildApp(config, { logger = true, conversions } = {}) {
     if (!pending || pending.username !== request.user) {
       return reply.code(404).send({ error: 'Cette recherche a expiré, recommencez' });
     }
-    pendingMovies.delete(request.params.token);
+    for (const [token, other] of pendingMovies) {
+      if (other.search === pending.search) pendingMovies.delete(token);
+    }
     let link;
     let filename;
     try {
