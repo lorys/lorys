@@ -60,7 +60,7 @@ export async function addAMovie(name) {
         
         const imgUrlRaw = Array.from(ztcontent.matchAll(/<center>[^<]{0,}<img src="([^"]{0,})" alt="/g));
         let imgUrl = imgUrlRaw?.[0]?.[1];
-        const reqImg = await fetch(`${ztdomain}${imgUrl}`);
+        const reqImg = await fetch(`https://${ztdomain}${imgUrl}`);
         const buffer = Buffer.from(await reqImg.arrayBuffer());
         const mime = reqImg.headers.get("content-type") || "image/png";
         imgUrl = `data:${mime};base64,${buffer.toString("base64")}`;
@@ -92,14 +92,14 @@ export async function addAMovie(name) {
     const getBestQualities = async (movieId) => {
         const movieQ = await fetch(`https://${ztdomain}/?p=film&id=${movieId}`);
         const movieData = await movieQ.text();
-        let currentMovieData = getMovieDataFromPage(movieData);
+        let currentMovieData = await getMovieDataFromPage(movieData);
         console.log({ currentMovieData });
 
         const allQualities = await Promise.allSettled(currentMovieData.allQualityLinks.map(async (e) => {
             console.log("allQualities", e, "fetching...");
             const movieQ = await fetch(`https://${ztdomain}/${e}`);
             const movieData = await movieQ.text();
-            return getMovieDataFromPage(movieData);
+            return await getMovieDataFromPage(movieData);
         }));
 
         let allAvailableQualities = [currentMovieData, ...(allQualities.map(e => e.value))];
