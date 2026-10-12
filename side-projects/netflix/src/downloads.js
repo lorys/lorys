@@ -47,11 +47,11 @@ export function filenameFromUrl(url) {
 }
 
 /**
- * Pick a safe video filename for a response: Content-Disposition first, then the URL.
- * Returns null when the response doesn't look like a video.
+ * Pick a safe video filename for a response: the caller's `name` first, then
+ * Content-Disposition, then the URL. Returns null when the response doesn't look like a video.
  */
-export function pickFilename({ disposition, url, contentType }) {
-  const raw = filenameFromDisposition(disposition) ?? filenameFromUrl(url) ?? 'film';
+export function pickFilename({ name: preferred, disposition, url, contentType }) {
+  const raw = preferred || filenameFromDisposition(disposition) || filenameFromUrl(url) || 'film';
   let name = path
     .basename(raw.replace(/\\/g, '/'))
     .replace(/[\x00-\x1f<>:"|?*]/g, '')
@@ -101,6 +101,7 @@ export function createDownloadManager(moviesPath, { logger = console } = {}) {
       const res = await fetch(download.url, { signal: download.controller.signal, redirect: 'follow' });
       if (!res.ok || !res.body) throw new Error(`Le serveur a répondu ${res.status}`);
       const name = pickFilename({
+        name: download.preferredName,
         disposition: res.headers.get('content-disposition'),
         url: res.url || download.url,
         contentType: res.headers.get('content-type'),
@@ -139,18 +140,22 @@ export function createDownloadManager(moviesPath, { logger = console } = {}) {
     }
   }
 
-  function toJSON({ controller, finishedAt, done, ...download }) {
+  function toJSON({ controller, finishedAt, done, preferredName, ...download }) {
     return download;
   }
 
   return {
-    /** Start downloading `url` in the background; resolves with the new download. */
-    start(url) {
+    /**
+     * Start downloading `url` in the background; resolves with the new download.
+     * `filename` overrides the name the server would give the file.
+     */
+    start(url, { filename = null } = {}) {
       prune();
       const download = {
         id: crypto.randomBytes(6).toString('hex'),
         url,
         filename: null,
+        preferredName: filename,
         received: 0,
         total: null,
         status: 'downloading',

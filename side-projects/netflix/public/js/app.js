@@ -267,6 +267,7 @@ function renderHome() {
   $('empty').hidden = !isEmpty;
   $('empty').textContent = 'Aucun film pour le moment. Ajoutez des fichiers dans MOVIES_PATH : ils apparaîtront ici après le scan.';
   $('search-results').hidden = true;
+  $('add-movie-btn').hidden = true;
   $('rows').hidden = false;
   renderHero();
   renderRows();
@@ -294,7 +295,10 @@ function renderSearch(query) {
     ? `Résultats pour « ${query.trim()} »`
     : `Aucun résultat pour « ${query.trim()} »`;
   $('search-grid').replaceChildren(...results.map((m) => createCard(m)));
+  $('add-movie-btn').hidden = results.length > 0;
 }
+
+$('add-movie-btn').addEventListener('click', () => openAddMovie($('search-input').value.trim()));
 
 $('home-link').addEventListener('click', (event) => {
   event.preventDefault();
@@ -674,6 +678,100 @@ $('downloads').addEventListener('click', (event) => {
   if (event.target.closest('[data-close]')) closeDownloads();
 });
 
+// ---------- Add a movie by its exact name ----------
+
+// Movie found by the server, waiting for the user to confirm: { token, movieName, imgUrl, size }.
+let addMovieFound = null;
+// Bumped on every request and on close, so a late answer doesn't land in a closed or reset modal.
+let addMovieRequest = 0;
+
+function setAddMovieStatus(text, { error = false } = {}) {
+  const status = $('add-movie-status');
+  status.hidden = !text;
+  status.textContent = text;
+  status.classList.toggle('add-movie__status--error', error);
+}
+
+function showAddMovieForm() {
+  addMovieRequest++;
+  addMovieFound = null;
+  $('add-movie-form').hidden = false;
+  $('add-movie-found').hidden = true;
+  $('add-movie-send').disabled = false;
+  setAddMovieStatus('');
+  $('add-movie-name').focus();
+}
+
+function openAddMovie(name = '') {
+  $('add-movie-name').value = name;
+  $('add-movie').hidden = false;
+  document.body.classList.add('no-scroll');
+  showAddMovieForm();
+}
+
+function closeAddMovie() {
+  addMovieRequest++;
+  addMovieFound = null;
+  $('add-movie').hidden = true;
+  document.body.classList.remove('no-scroll');
+}
+
+$('add-movie-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const name = $('add-movie-name').value.trim();
+  if (!name) return;
+  const request = ++addMovieRequest;
+  $('add-movie-send').disabled = true;
+  setAddMovieStatus('Recherche du film…');
+  try {
+    const found = await api('/api/add-movie', { method: 'POST', body: JSON.stringify({ name }) });
+    if (request !== addMovieRequest) return;
+    addMovieFound = found;
+    $('add-movie-found-name').textContent = found.movieName;
+    $('add-movie-found-size').textContent = found.size ? `Taille : ${found.size}` : '';
+    $('add-movie-poster').hidden = !found.imgUrl;
+    $('add-movie-poster').src = found.imgUrl ?? '';
+    $('add-movie-poster').alt = `Affiche de ${found.movieName}`;
+    $('add-movie-form').hidden = true;
+    $('add-movie-found').hidden = false;
+    $('add-movie-confirm').disabled = false;
+    $('add-movie-back').disabled = false;
+    setAddMovieStatus('');
+    $('add-movie-confirm').focus();
+  } catch (err) {
+    if (request !== addMovieRequest) return;
+    $('add-movie-send').disabled = false;
+    setAddMovieStatus(err.message, { error: true });
+    $('add-movie-name').focus();
+  }
+});
+
+$('add-movie-back').addEventListener('click', showAddMovieForm);
+
+$('add-movie-confirm').addEventListener('click', async () => {
+  if (!addMovieFound) return;
+  const request = ++addMovieRequest;
+  $('add-movie-confirm').disabled = true;
+  $('add-movie-back').disabled = true;
+  setAddMovieStatus('Préparation du téléchargement…');
+  try {
+    await api(`/api/add-movie/${addMovieFound.token}/download`, { method: 'POST' });
+    if (request !== addMovieRequest) return;
+    // From here on it's a regular download: follow it in the downloads modal.
+    closeAddMovie();
+    openDownloads();
+  } catch (err) {
+    if (request !== addMovieRequest) return;
+    // The server forgets the movie once confirmed, so a retry starts over from the name.
+    $('add-movie-back').disabled = false;
+    setAddMovieStatus(err.message, { error: true });
+  }
+});
+
+$('add-movie').addEventListener('click', (event) => {
+  if (event.target.closest('[data-close]')) closeAddMovie();
+});
+
 // ---------- Player ----------
 
 const player = createPlayer({ onBack: () => closePlayer() });
@@ -774,7 +872,7 @@ document.addEventListener('keydown', (event) => {
   if (player.handleKey(event)) return;
   if (event.key === 'Enter') {
     // Enter anywhere on the catalogue (but not while typing or on a focused button) opens downloads.
-    const busy = !$('player').hidden || !$('modal').hidden || !$('downloads').hidden || $('browse-view').hidden;
+    const busy = !$('player').hidden || !$('modal').hidden || !$('downloads').hidden || !$('add-movie').hidden || $('browse-view').hidden;
     console.log({busy}, event.target.closest('input, textarea, select, button, a'));
     if (busy || event.target.closest('input, textarea, select, button, a')) return;
     event.preventDefault();
@@ -786,6 +884,7 @@ document.addEventListener('keydown', (event) => {
   if (!$('player').hidden) closePlayer();
   else if (!$('modal').hidden) closeModal();
   else if (!$('downloads').hidden) closeDownloads();
+  else if (!$('add-movie').hidden) closeAddMovie();
 });
 
 // ---------- Boot ----------

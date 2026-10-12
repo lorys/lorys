@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -11,6 +12,10 @@ import { readMoviesInfos } from './scanner.js';
 import { createConversionManager } from './conversions.js';
 import { createDownloadManager } from './downloads.js';
 import { createSubtitlesService } from './subtitles.js';
+import { addAMovie } from './addAMovie.js';
+
+// A movie found by addAMovie() waits this long for the user to confirm the download.
+const PENDING_MOVIE_TTL_MS = 15 * 60_000;
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 
@@ -234,6 +239,77 @@ export function buildApp(config, { logger = true, conversions } = {}) {
   app.delete('/api/downloads/:id', { preHandler: requireUser }, async (request, reply) => {
     if (!downloads.remove(request.params.id)) return reply.code(404).send({ error: 'Téléchargement introuvable' });
     return { ok: true };
+  });
+
+  // ---------- Adding a movie by its exact name (when a search finds nothing) ----------
+
+  // The `download` callback of each found movie stays here until the user confirms.
+  const pendingMovies = new Map(); // token → { username, download, expiresAt }
+
+  const prunePendingMovies = () => {
+    for (const [token, pending] of pendingMovies) {
+      if (pending.expiresAt < Date.now()) pendingMovies.delete(token);
+    }
+  };
+
+  app.post('/api/add-movie', {
+    preHandler: requireUser,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name'],
+        properties: { name: { type: 'string', minLength: 1, maxLength: 300 } },
+      },
+    },
+    handler: async (request, reply) => {
+      const name = request.body.name.trim();
+      if (!name) return reply.code(400).send({ error: 'Indiquez le nom du film' });
+      let found;
+      try {
+        found = await addAMovie(name);
+      } catch (err) {
+        request.log.error(err, 'addAMovie failed');
+        return reply.code(502).send({ error: 'La recherche du film a échoué' });
+      }
+      if (!found || found.ok === false) {
+        const notFound = !found || found.error === 'not found';
+        return reply.code(404).send({ error: notFound ? `Aucun film trouvé pour « ${name} »` : String(found.error) });
+      }
+      if (typeof found.download !== 'function') {
+        request.log.error({ found }, 'addAMovie returned no download callback');
+        return reply.code(502).send({ error: 'La recherche du film a échoué' });
+      }
+      prunePendingMovies();
+      const token = crypto.randomBytes(12).toString('hex');
+      pendingMovies.set(token, { username: request.user, download: found.download, expiresAt: Date.now() + PENDING_MOVIE_TTL_MS });
+      return { token, movieName: found.movieName ?? name, imgUrl: found.imgUrl ?? null, size: found.size ?? null };
+    },
+  });
+
+  app.post('/api/add-movie/:token/download', { preHandler: requireUser }, async (request, reply) => {
+    prunePendingMovies();
+    const pending = pendingMovies.get(request.params.token);
+    if (!pending || pending.username !== request.user) {
+      return reply.code(404).send({ error: 'Cette recherche a expiré, recommencez' });
+    }
+    pendingMovies.delete(request.params.token);
+    let link;
+    let filename;
+    try {
+      ({ link, filename } = await pending.download());
+    } catch (err) {
+      request.log.error(err, 'addAMovie download callback failed');
+      return reply.code(502).send({ error: "Impossible d'obtenir le lien de téléchargement" });
+    }
+    let url;
+    try {
+      url = new URL(String(link));
+    } catch {}
+    if (!url || !['http:', 'https:'].includes(url.protocol)) {
+      request.log.error({ link }, 'addAMovie returned an invalid link');
+      return reply.code(502).send({ error: 'Le lien de téléchargement obtenu est invalide' });
+    }
+    return reply.code(201).send(downloads.start(url.href, { filename: typeof filename === 'string' ? filename : null }));
   });
 
   // ---------- Subtitles (sidecar .srt/.vtt files and text tracks embedded in the video) ----------

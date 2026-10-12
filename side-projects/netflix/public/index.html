@@ -46,6 +46,7 @@
       <section id="search-results" class="search-results" hidden>
         <h2 id="search-title"></h2>
         <div id="search-grid" class="grid"></div>
+        <button id="add-movie-btn" class="btn btn--primary" hidden>Ajouter un film</button>
       </section>
 
       <p id="empty" class="empty" hidden></p>
@@ -96,6 +97,35 @@
         <h2 id="downloads-title">Télécharger un film</h2>
         <p class="downloads__hint">Collez le lien d'un fichier vidéo puis appuyez sur Entrée. Plusieurs téléchargements peuvent tourner en même temps.</p>
         <ul id="downloads-list" class="downloads__list"></ul>
+      </article>
+    </div>
+
+    <!-- Add a movie by its exact name (offered when a search finds nothing) -->
+    <div id="add-movie" class="modal" hidden>
+      <div class="modal__backdrop" data-close></div>
+      <article class="modal__card downloads" role="dialog" aria-modal="true" aria-labelledby="add-movie-title">
+        <button class="modal__close" data-close aria-label="Fermer">✕</button>
+        <h2 id="add-movie-title">Ajouter un film</h2>
+        <form id="add-movie-form">
+          <p class="downloads__hint">Tapez le nom exact du film.</p>
+          <div class="download__form">
+            <input id="add-movie-name" class="download__url" name="name" placeholder="Nom exact du film" autocomplete="off" maxlength="300" required />
+            <button type="submit" class="btn btn--primary" id="add-movie-send">Envoyer</button>
+          </div>
+        </form>
+        <div id="add-movie-found" class="add-movie__found" hidden>
+          <img id="add-movie-poster" class="add-movie__poster" alt="" />
+          <div class="add-movie__info">
+            <h3 id="add-movie-found-name"></h3>
+            <p id="add-movie-found-size" class="add-movie__size"></p>
+            <p>Télécharger ce film ?</p>
+            <div class="modal__actions">
+              <button class="btn btn--primary" id="add-movie-confirm">Confirmer</button>
+              <button class="btn btn--secondary" id="add-movie-back">Retour</button>
+            </div>
+          </div>
+        </div>
+        <p id="add-movie-status" class="add-movie__status" role="status" hidden></p>
       </article>
     </div>
 

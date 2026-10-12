@@ -201,6 +201,7 @@ button { font: inherit; cursor: pointer; }
 
 .search-results { padding: 6rem 4% 4rem; }
 .search-results h2 { font-weight: 400; color: var(--muted); }
+#add-movie-btn { margin-top: 0.5rem; }
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -822,3 +823,15 @@ button { font: inherit; cursor: pointer; }
 .download--error .download__text { color: #e87c03; }
 .download--indeterminate .download__bar > span { width: 30% !important; animation: indeterminate 1.2s linear infinite; }
 @keyframes indeterminate { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
+
+/* ---------- Add a movie ---------- */
+
+.add-movie__found { display: flex; gap: 1.5rem; align-items: flex-start; }
+.add-movie__poster { width: 140px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: var(--card-radius); background: #333; flex: 0 0 auto; }
+.add-movie__info h3 { margin: 0 0 0.4rem; font-size: 1.4rem; }
+.add-movie__size { color: var(--muted); margin: 0 0 1rem; }
+.add-movie__status { margin: 1rem 0 0; font-size: 0.9rem; color: var(--muted); }
+.add-movie__status--error { color: #e87c03; }
+@media (max-width: 500px) {
+  .add-movie__found { flex-direction: column; }
+}
