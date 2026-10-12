@@ -76,7 +76,7 @@ export async function addAMovie(name) {
             Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#f47445">Turbobit<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0],
             Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#5390a8">Nitroflare<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0]
         ];        
-        
+
         console.log(JSON.stringify({ protectedDownloadLinks }, null, 2));
 
         return {
@@ -105,7 +105,7 @@ export async function addAMovie(name) {
 
     console.log({ allAvailableQualities });
 
-    let bestQuality = allAvailableQualities.find(e => parseFloat(e.size) > 1.5 && parseFloat(e.size) < 5);
+    let bestQuality = allAvailableQualities.find(e => parseFloat(e.size) > 2 && parseFloat(e.size) < 5);
 
     bestQuality = bestQuality || allAvailableQualities[0];
 
