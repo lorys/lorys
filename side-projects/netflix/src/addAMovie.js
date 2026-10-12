@@ -69,22 +69,22 @@ export async function addAMovie(name) {
         console.log("rawSize", rawSize.map(e => e.slice(0,3)));
         const size = rawSize?.[0]?.[1];
         const allQualityLinks = Array.from(ztcontent.matchAll(/(?<=Qualités également disponibles pour ce film:(?:(?!<\/div>)[\s\S])*?<a\b[^>]*\bhref=["'])[^"']+/g))?.map(e => e?.[0]);
-        const protectedDownloadLinkRapidgator = Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#fbaf4e">Rapidgator<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0];
-        const protectedDownloadLinkUploady = Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#c2107b">Uploady<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0];
-        const protectedDownloadLinkDailyUploads = Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#c442b5">DailyUploads<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0];
-        const protectedDownloadLinkDailyTurbobit = Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#f47445">Turbobit<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0];
+        const protectedDownloadLinks = [
+            Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#fbaf4e">Rapidgator<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0],
+            Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#c2107b">Uploady<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0],
+            Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#c442b5">DailyUploads<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0],
+            Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#f47445">Turbobit<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0],
+            Array.from(ztcontent.matchAll(/(?<=<b><div style="font-weight:bold;color:#5390a8">Nitroflare<\/div><\/b>(?:(?!<a\b)[\s\S])*?<a\b[^>]*href=["'])[^"']+/g))?.map(e => e?.[0])?.[0]
+        ];        
+        
+        console.log(JSON.stringify({ protectedDownloadLinks }, null, 2));
 
         return {
             movieName,
             imgUrl,
             size,
             allQualityLinks,
-            protectedDownloadLinks: [
-                protectedDownloadLinkRapidgator,
-                protectedDownloadLinkUploady,
-                protectedDownloadLinkDailyUploads,
-                protectedDownloadLinkDailyTurbobit
-            ]
+            protectedDownloadLinks
         }
     };
 
