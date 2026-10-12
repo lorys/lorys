@@ -112,9 +112,7 @@ export async function addAMovie(name) {
 
     const results = await Promise.allSettled(first10Result.map(getBestQualities));
 
-    console.log(JSON.stringify({ results }, null, 2));
-
-    return results.map(res => ({
+    return results.filter(e => e.status === 'fulfilled').map(res => ({
         movieName: res.value.movieName,
         imgUrl: res.value.imgUrl,
         size: res.value.size,
