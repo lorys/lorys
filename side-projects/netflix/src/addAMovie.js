@@ -83,7 +83,7 @@ export async function addAMovie(name) {
     let currentMovieData = getMovieDataFromPage(movieData);
     console.log({ currentMovieData });
 
-    const allQualities = Promise.allSettled(currentMovieData.allQualityLinks.map(async (e) => {
+    const allQualities = await Promise.allSettled(currentMovieData.allQualityLinks.map(async (e) => {
         console.log("allQualities", e, "fetching...");
         const movieQ = await fetch(`https://${ztdomain}/${e}`);
         const movieData = await movieQ.text();
