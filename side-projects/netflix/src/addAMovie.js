@@ -65,7 +65,7 @@ export async function addAMovie(name) {
         const imgUrlRaw = Array.from(ztcontent.matchAll(/<center>[^<]{0,}<img src="([^"]{0,})" alt="/g));
         console.log("imgUrlRaw", imgUrlRaw.map(e => e.slice(0,3)));
         const imgUrl = imgUrlRaw?.[0]?.[1];
-        const rawSize = Array.from(ztcontent.matchAll(/<strong>[^<]{0,}<u>Taille du fichier<\/u>[^<]{0,}:[^<]{0,}<\/strong>[\D]{0,}([^G]{0,}[Go|Mo])/g));
+        const rawSize = Array.from(ztcontent.matchAll(/<strong>[^<]{0,}<u>Taille du fichier<\/u>[^<]{0,}:[^<]{0,}<\/strong>[\D]{0,}([^G]{0,}Go)/g));
         console.log("rawSize", rawSize.map(e => e.slice(0,3)));
         const size = rawSize?.[0]?.[1];
         const allQualityLinks = Array.from(ztcontent.matchAll(/(?<=Qualités également disponibles pour ce film:(?:(?!<\/div>)[\s\S])*?<a\b[^>]*\bhref=["'])[^"']+/g))?.map(e => e?.[0]);
