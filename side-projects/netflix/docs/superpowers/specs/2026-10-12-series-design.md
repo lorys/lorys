@@ -139,11 +139,11 @@ Scan rules:
 - `showEpisodes(movies, showKey)` → episodes of a show sorted by season, episode, file.
 - `nextEpisode(episodes, current)` → the next episode after `current` (next number in the season, then the
   first of the next season) that isn't being converted, or `null`.
-- `showResumeTarget(episodes, progress, watched)` → `{ episode, resume }`: the episode with the most recent
-  activity (`progress.updatedAt` or `watched` date); in progress → resume it; finished → the next episode
-  from the start (or `null` episode when it was the last one); no activity → the first episode.
-- `showActivity(episodes, progress, watched)` → latest activity date, or `null` — used to place the show in
-  "Reprendre la lecture" (only when `showResumeTarget` has an episode).
+- `showResumeTarget(episodes, progress, watched)` → `{ episode, resume, date }`: the episode with the most
+  recent activity (`progress.updatedAt` or `watched` date); in progress → resume it; finished → the next
+  episode from the start (or `null` episode when it was the last one); no activity → the first episode.
+  `date` is that latest activity (or `null`) and places the show in "Reprendre la lecture" (only when
+  `episode` isn't `null`).
 - `episodeLabel(episode)` → `S1:É2` / `S1:É1-2`.
 
 ### `public/js/app.js`
