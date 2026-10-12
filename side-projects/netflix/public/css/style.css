@@ -29,6 +29,8 @@ button { font: inherit; cursor: pointer; }
   text-decoration: none;
 }
 .brand--large { font-size: 2.6rem; position: absolute; top: 24px; left: 4%; }
+/* The C stands in for the wordmark on narrow screens, like Netflix's N. */
+.brand__mark { display: none; height: 2.4rem; width: auto; }
 
 .btn {
   border: 0;
@@ -68,6 +70,7 @@ button { font: inherit; cursor: pointer; }
   gap: 1rem;
 }
 .login__card h1 { margin: 0 0 0.5rem; font-size: 2rem; color: white; }
+.login__mark { align-self: center; height: 64px; width: auto; margin-bottom: 0.5rem; }
 .login__card input {
   background: #333;
   border: 0;
@@ -314,6 +317,8 @@ button { font: inherit; cursor: pointer; }
   .modal__body { grid-template-columns: 1fr; padding: 0 1.5rem 2rem; }
   .modal__hero-content { padding: 0 1.5rem 1.5rem; }
   .topbar__user { display: none; }
+  .brand__wordmark { display: none; }
+  .brand__mark { display: block; }
 }
 
 /* ---------- Player ---------- */
