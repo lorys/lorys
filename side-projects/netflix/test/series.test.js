@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseEpisodeFilename, parseMovieFilename, showKey } from '../src/filename.js';
+import { createTmdbClient } from '../src/tmdb.js';
 
 const ep = (showTitle, season, episode, extra = {}) => ({ showTitle, year: null, season, episode, episodeEnd: episode, ...extra });
 
@@ -48,4 +49,29 @@ test('showKey ignores case, accents and punctuation', () => {
   assert.equal(showKey('breaking  bad'), 'breaking bad');
   assert.equal(showKey('Le Bureau des Légendes'), 'le bureau des legendes');
   assert.equal(showKey('The Office (US)'), 'the office us');
+});
+
+test('TMDB client searches TV shows (year hint, then without) and fetches seasons in French', async () => {
+  const urls = [];
+  const fetchImpl = async (url) => {
+    urls.push(url);
+    const searching = url.pathname.endsWith('/search/tv');
+    // Nothing with the year hint, a hit without it.
+    const results = url.searchParams.has('first_air_date_year') ? [] : [{ id: 1396 }];
+    return { ok: true, status: 200, json: async () => (searching ? { results } : { id: 1396 }) };
+  };
+  const client = createTmdbClient('v3key', { fetchImpl });
+
+  assert.deepEqual(await client.searchTv('Breaking Bad', 2008), { id: 1396 });
+  assert.equal(urls[0].pathname, '/3/search/tv');
+  assert.equal(urls[0].searchParams.get('query'), 'Breaking Bad');
+  assert.equal(urls[0].searchParams.get('first_air_date_year'), '2008');
+  assert.equal(urls[0].searchParams.get('language'), 'fr-FR');
+  assert.equal(urls[1].searchParams.has('first_air_date_year'), false);
+
+  await client.tvDetails(1396);
+  assert.equal(urls[2].pathname, '/3/tv/1396');
+  await client.seasonDetails(1396, 2);
+  assert.equal(urls[3].pathname, '/3/tv/1396/season/2');
+  assert.equal(urls[3].searchParams.get('language'), 'fr-FR');
 });

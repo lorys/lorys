@@ -59,5 +59,17 @@ export function createTmdbClient(apiKey, { fetchImpl = fetch } = {}) {
     movieDetails(id) {
       return get(`/movie/${id}`, { append_to_response: 'credits' });
     },
+    async searchTv(title, year) {
+      const query = normalizeMovieFilename(title);
+      let data = await get('/search/tv', { query, first_air_date_year: year ?? undefined, include_adult: false });
+      if (!data.results?.length && year) data = await get('/search/tv', { query, include_adult: false });
+      return data.results?.[0] ?? null;
+    },
+    tvDetails(id) {
+      return get(`/tv/${id}`);
+    },
+    seasonDetails(id, season) {
+      return get(`/tv/${id}/season/${season}`);
+    },
   };
 }
