@@ -7,6 +7,7 @@ import { parseEpisodeFilename, parseMovieFilename, showKey } from '../src/filena
 import { createTmdbClient } from '../src/tmdb.js';
 import { readMoviesInfos, renameMovieEntry, scanMovies } from '../src/scanner.js';
 import { buildApp } from '../src/app.js';
+import { needsScan } from '../src/watcher.js';
 import { hashPassword, readAccounts, writeAccounts } from '../src/accounts.js';
 
 const ep = (showTitle, season, episode, extra = {}) => ({ showTitle, year: null, season, episode, episodeEnd: episode, ...extra });
@@ -338,4 +339,44 @@ test('HTTP API: shows in the movie list and watched episodes', async () => {
   } finally {
     await app.close();
   }
+});
+
+test('needsScan picks up episodes that an older version scanned as movies', async () => {
+  const config = await library('legacy-watch', ['Lupin.S01E01.mkv']);
+  await fs.writeFile(
+    config.moviesInfosPath,
+    JSON.stringify({ updatedAt: null, movies: [{ id: 'abcdefabcdef', file: 'Lupin.S01E01.mkv', matched: true, title: 'Arsène Lupin' }] }),
+  );
+  assert.equal(await needsScan(config), true, 'same files, but the episode is still stored as a movie');
+  await scanMovies(config, { tmdb: fakeTmdb(), logger: quiet });
+  assert.equal(await needsScan(config), false);
+});
+
+test('a new episode missing from the cached season refreshes that season (show still airing)', async () => {
+  const config = await library('airing', ['Breaking.Bad.S01E01.mkv']);
+  const tmdb = fakeTmdb();
+  const seasonDetails = tmdb.seasonDetails;
+  let aired = 1;
+  // TMDB only lists the episodes aired so far.
+  tmdb.seasonDetails = async function (id, season) {
+    const data = await seasonDetails.call(this, id, season);
+    return { episodes: data.episodes.slice(0, aired) };
+  };
+  await scanMovies(config, { tmdb, logger: quiet });
+
+  aired = 2;
+  await fs.writeFile(path.join(config.moviesPath, 'Breaking.Bad.S01E02.mkv'), 'x');
+  tmdb.calls = [];
+  await scanMovies(config, { tmdb, logger: quiet });
+  assert.deepEqual(callsOf(tmdb, 'seasonDetails'), [['seasonDetails', 100, 1]]);
+  const { movies, shows } = await readMoviesInfos(config.moviesInfosPath);
+  assert.equal(movies.find((m) => m.file === 'Breaking.Bad.S01E02.mkv').title, 'S1 épisode 2');
+  assert.equal(shows['breaking bad'].seasons[1][2].name, 'S1 épisode 2');
+
+  // Still missing from TMDB after the refresh: kept as "Épisode N", not looked up on every scan.
+  await fs.writeFile(path.join(config.moviesPath, 'Breaking.Bad.S01E03.mkv'), 'x');
+  await scanMovies(config, { tmdb, logger: quiet });
+  tmdb.calls = [];
+  await scanMovies(config, { tmdb, logger: quiet });
+  assert.deepEqual(tmdb.calls, []);
 });

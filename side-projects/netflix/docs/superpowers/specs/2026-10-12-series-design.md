@@ -113,7 +113,8 @@ Scan rules:
 - An episode whose previous entry is `matched` is kept as is (unless `force`), like movies.
 - Episodes to look up are grouped by `showKey`. For each show: reuse the previous `shows` entry when it is
   matched (unless `force`), otherwise `searchTv` + `tvDetails`. Then, for every season among the episodes to
-  look up that the show entry doesn't have yet, `seasonDetails`. Shows are looked up through the existing
+  look up that the show entry doesn't have yet — or whose cached data lacks one of those episodes (a show
+  still airing) — `seasonDetails`. Shows are looked up through the existing
   pool (4 at a time); a show's seasons are fetched one after the other.
 - An episode is `matched` when its show is matched and its season details were fetched. If the show matched
   but a season lookup failed, its episodes stay unmatched (`Épisode N`) and are retried next scan.

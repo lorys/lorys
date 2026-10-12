@@ -294,7 +294,9 @@ export async function scanMovies(config, { force = false, logger = console, tmdb
     if (show.matched) {
       const seasons = [...new Set(episodes.map((e) => e.parsed.season))].sort((a, b) => a - b);
       for (const season of seasons) {
-        if (show.seasons[season]) continue;
+        // Fetched again when a new episode isn't in it yet (a show still airing).
+        const cached = show.seasons[season];
+        if (cached && episodes.every((e) => e.parsed.season !== season || cached[e.parsed.episode])) continue;
         try {
           show.seasons[season] = toSeasonInfo(await client.seasonDetails(show.tmdbId, season));
         } catch (err) {

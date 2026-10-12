@@ -4,6 +4,7 @@
 // After a scan, `onScanned` receives the movies it added (they may need a conversion);
 // `onChecked` runs after every check, scan or not (files may have changed in place).
 import fs from 'node:fs';
+import { parseEpisodeFilename } from './filename.js';
 import { listVideoFiles, readMoviesInfos, runExclusive, scanMovies } from './scanner.js';
 
 const DEBOUNCE_MS = 5_000;
@@ -13,7 +14,9 @@ export async function needsScan(config) {
   const [files, infos] = await Promise.all([listVideoFiles(config.moviesPath), readMoviesInfos(config.moviesInfosPath)]);
   if (files.length !== infos.movies.length) return true;
   const known = new Set(infos.movies.map((m) => m.file));
-  return files.some((f) => !known.has(f.file));
+  if (files.some((f) => !known.has(f.file))) return true;
+  // Infos written before series support hold episodes as movies: rescan them as episodes.
+  return infos.movies.some((m) => (m.kind === 'episode') !== Boolean(parseEpisodeFilename(m.file)));
 }
 
 export function watchMovies(config, { logger = console, pollMs = DEFAULT_POLL_MS, scan = scanMovies, onScanned, onChecked } = {}) {
