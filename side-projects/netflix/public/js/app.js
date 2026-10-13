@@ -42,6 +42,17 @@ async function showBrowse(username) {
   [{ movies, shows }, progress, watched] = await Promise.all([api('/api/movies'), api('/api/progress'), api('/api/watched')]);
   renderHome();
   watchConversions();
+  showDiskUsage();
+}
+
+async function showDiskUsage() {
+  try {
+    const { usedPercent } = await api('/api/disk');
+    $('disk-usage').textContent = `Espace utilisé sur /data : ${usedPercent} %`;
+    $('disk-usage').hidden = false;
+  } catch {
+    $('disk-usage').hidden = true;
+  }
 }
 
 $('login-form').addEventListener('submit', async (event) => {

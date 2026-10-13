@@ -181,6 +181,11 @@ test('HTTP API: auth, movie list and ranged streaming', async () => {
 
     assert.equal((await app.inject({ url: '/api/movies/nope/stream', cookies })).statusCode, 404);
     assert.equal((await app.inject('/')).statusCode, 200);
+
+    assert.equal((await app.inject('/api/disk')).statusCode, 401);
+    const disk = (await app.inject({ url: '/api/disk', cookies })).json();
+    assert.ok(disk.total > 0 && disk.used <= disk.total);
+    assert.ok(disk.usedPercent >= 0 && disk.usedPercent <= 100);
   } finally {
     await app.close();
   }

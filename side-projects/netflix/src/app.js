@@ -137,6 +137,15 @@ export function buildApp(config, { logger = true, conversions } = {}) {
 
   app.get('/api/conversions', { preHandler: requireUser }, async () => conversions.list());
 
+  // Disk usage of the filesystem holding the data folder (/data in Docker).
+  app.get('/api/disk', { preHandler: requireUser }, async () => {
+    const { blocks, bfree, bavail, bsize } = await fsp.statfs(path.dirname(config.moviesInfosPath));
+    const used = (blocks - bfree) * bsize;
+    // Same formula as `df`: reserved blocks count neither as used nor as available.
+    const usedPercent = Math.ceil((used / (used + bavail * bsize)) * 100);
+    return { total: blocks * bsize, used, available: bavail * bsize, usedPercent };
+  });
+
   // ---------- Watch progress (stored per account in ACCOUNTS_PATH) ----------
 
   // Hide entries of movies that are no longer in the library (kept in case they come back).
