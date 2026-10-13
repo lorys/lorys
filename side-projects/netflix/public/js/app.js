@@ -43,6 +43,7 @@ async function showBrowse(username) {
   renderHome();
   watchConversions();
   showDiskUsage();
+  refreshWatching();
 }
 
 async function showDiskUsage() {
@@ -54,6 +55,69 @@ async function showDiskUsage() {
   } catch {
     $('disk-usage').hidden = true;
   }
+}
+
+// ---------- Who is watching right now ----------
+
+const WATCHING_POLL_MS = 10_000;
+let watchingTimer = null;
+
+async function refreshWatching() {
+  clearTimeout(watchingTimer);
+  if ($('browse-view').hidden) return; // logged out
+  try {
+    renderWatching(await api('/api/watching'));
+  } catch {
+    renderWatching([]);
+  }
+  watchingTimer = setTimeout(refreshWatching, WATCHING_POLL_MS);
+}
+
+/** Updates the list in place, so only people who just started watching animate in. */
+function renderWatching(list) {
+  const items = list
+    .map((entry) => ({ ...entry, movie: movies.find((m) => m.id === entry.movieId) }))
+    .filter((entry) => entry.movie)
+    .sort((a, b) => a.username.localeCompare(b.username));
+  const ul = $('watching-list');
+  const existing = new Map([...ul.children].map((li) => [li.dataset.key, li]));
+  const keys = new Set();
+  for (const entry of items) {
+    const key = `${entry.username}:${entry.movieId}`;
+    keys.add(key);
+    const li = existing.get(key) ?? createWatcher(entry);
+    li.dataset.key = key;
+    li.querySelector('.watcher__progress span').style.width = progressPercent(entry);
+    ul.append(li); // keeps the sort order
+  }
+  for (const [key, li] of existing) if (!keys.has(key)) li.remove();
+  $('watching').hidden = !items.length;
+}
+
+function createWatcher({ username, movie }) {
+  const show = isEpisode(movie) ? shows[movie.showKey] : null;
+  const title = show ? show.title : movie.title;
+  const li = document.createElement('li');
+  li.className = 'watcher';
+  li.innerHTML = `
+    <button class="watcher__card" type="button">
+      <span class="watcher__poster"><span class="watcher__bars" aria-hidden="true"><i></i><i></i><i></i></span></span>
+      <span class="watcher__info">
+        <span class="watcher__user"></span>
+        <span class="watcher__movie"></span>
+        <span class="watcher__progress"><span></span></span>
+      </span>
+    </button>`;
+  const posterPath = show?.posterPath ?? movie.posterPath;
+  if (posterPath) li.querySelector('.watcher__poster').style.backgroundImage = `url(${IMG}/w92${posterPath})`;
+  li.querySelector('.watcher__user').textContent = username;
+  li.querySelector('.watcher__movie').textContent = show ? `${title} · ${episodeLabel(movie)}` : title;
+  li.querySelector('.watcher__card').title = `${username} regarde ${title}`;
+  li.querySelector('.watcher__card').addEventListener('click', () => {
+    const item = show ? libraryShows().find((s) => s.key === movie.showKey) : movie;
+    if (item) openModal(item);
+  });
+  return li;
 }
 
 $('login-form').addEventListener('submit', async (event) => {
@@ -80,6 +144,7 @@ $('logout-btn').addEventListener('click', async () => {
   progress = {};
   watched = {};
   clearTimeout(conversionsTimer);
+  clearTimeout(watchingTimer);
   showLogin();
 });
 

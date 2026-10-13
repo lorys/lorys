@@ -17,6 +17,9 @@ import { addAMovie } from './addAMovie.js';
 // Movies found by addAMovie() wait this long for the user to pick one and confirm the download.
 const PENDING_MOVIE_TTL_MS = 15 * 60_000;
 
+// A user counts as watching while their player saved progress this recently (it saves every 10 s).
+const WATCHING_TTL_MS = 30_000;
+
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 
 const MIME_TYPES = {
@@ -148,6 +151,17 @@ export function buildApp(config, { logger = true, conversions } = {}) {
 
   // ---------- Watch progress (stored per account in ACCOUNTS_PATH) ----------
 
+  // username → { movieId, position, duration, updatedAt }: last progress saved, kept in memory only.
+  const lastProgress = new Map();
+
+  app.get('/api/watching', { preHandler: requireUser }, async () => {
+    const ids = new Set((await getInfos()).movies.map((m) => m.id));
+    const now = Date.now();
+    return [...lastProgress]
+      .filter(([, entry]) => now - entry.updatedAt < WATCHING_TTL_MS && ids.has(entry.movieId))
+      .map(([username, entry]) => ({ username, ...entry }));
+  });
+
   // Hide entries of movies that are no longer in the library (kept in case they come back).
   const onlyInLibrary = async (record = {}) => {
     const ids = new Set((await getInfos()).movies.map((m) => m.id));
@@ -206,6 +220,8 @@ export function buildApp(config, { logger = true, conversions } = {}) {
         return true;
       });
       if (!found) return reply.code(401).send({ error: 'Compte introuvable' });
+      if (entry) lastProgress.set(request.user, { movieId: request.params.id, position, duration, updatedAt: Date.now() });
+      else lastProgress.delete(request.user);
       return { progress: entry, watched: watchedAt };
     },
   });

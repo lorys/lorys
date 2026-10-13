@@ -225,6 +225,7 @@ test('HTTP API: watch progress is stored in the accounts file', async () => {
 
     assert.equal((await app.inject({ url: '/api/progress' })).statusCode, 401);
     assert.deepEqual((await app.inject({ url: '/api/progress', cookies })).json(), {});
+    assert.deepEqual((await app.inject({ url: '/api/watching', cookies })).json(), []);
 
     const put = await app.inject({ method: 'PUT', url: `/api/progress/${id}`, cookies, payload: { position: 1234.6, duration: 7200 } });
     assert.equal(put.statusCode, 200);
@@ -233,6 +234,12 @@ test('HTTP API: watch progress is stored in the accounts file', async () => {
     const list = (await app.inject({ url: '/api/progress', cookies })).json();
     assert.equal(list[id].position, 1235);
     assert.equal(list[id].duration, 7200);
+
+    // The last save, kept in memory, tells who is watching what right now.
+    const [watching] = (await app.inject({ url: '/api/watching', cookies })).json();
+    assert.equal(watching.username, 'lorys');
+    assert.equal(watching.movieId, id);
+    assert.equal(watching.position, 1234.6);
 
     // Persisted, encrypted, next to the credentials.
     const [account] = await readAccounts(config.accountsPath, config.accountsSecret);
@@ -243,6 +250,7 @@ test('HTTP API: watch progress is stored in the accounts file', async () => {
     // Reaching the credits clears it.
     const done = await app.inject({ method: 'PUT', url: `/api/progress/${id}`, cookies, payload: { position: 7150, duration: 7200 } });
     assert.equal(done.json().progress, null);
+    assert.deepEqual((await app.inject({ url: '/api/watching', cookies })).json(), []);
     assert.deepEqual((await app.inject({ url: '/api/progress', cookies })).json(), {});
 
     // Restart clears it too.
