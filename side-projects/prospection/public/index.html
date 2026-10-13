@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <title>Prospection</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <section id="login" class="login" hidden>
+    <form id="login-form">
+      <h1>Prospection</h1>
+      <label>Mot de passe
+        <input type="password" name="password" autocomplete="current-password" required autofocus>
+      </label>
+      <p class="error" id="login-error" hidden></p>
+      <button type="submit" class="primary">Se connecter</button>
+    </form>
+  </section>
+
+  <div id="app" hidden>
+    <header class="topbar">
+      <strong>Prospection</strong>
+      <button type="button" class="link" id="logout">Déconnexion</button>
+    </header>
+    <nav class="tabs" id="tabs"></nav>
+    <main id="view"></main>
+  </div>
+
+  <!-- Ajout / modification d'une cible -->
+  <dialog id="target-dialog">
+    <form method="dialog" id="target-form">
+      <h2 id="target-dialog-title">Nouvelle cible</h2>
+      <label>Nom du commerce
+        <input name="name" required maxlength="200">
+      </label>
+      <label>Lien Google Maps
+        <input name="mapsUrl" type="url" placeholder="https://maps.app.goo.gl/…">
+      </label>
+      <label>Adresse <small>(déduite du lien si vide)</small>
+        <input name="address" maxlength="500">
+      </label>
+      <label>Commercial assigné
+        <select name="commercialId"></select>
+      </label>
+      <label><span id="next-date-label">Date prévue du 1er échange</span>
+        <input name="nextDate" type="date">
+      </label>
+      <label id="status-field">Statut
+        <select name="status">
+          <option value="a_demarcher">À démarcher</option>
+          <option value="en_cours">En cours</option>
+          <option value="gagne">Gagné</option>
+          <option value="perdu">Perdu</option>
+        </select>
+      </label>
+      <p class="error" hidden></p>
+      <div class="actions">
+        <button type="button" class="danger" id="target-delete">Supprimer</button>
+        <span class="spacer"></span>
+        <button type="button" data-close>Annuler</button>
+        <button type="submit" class="primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Ajout d'une note à l'historique -->
+  <dialog id="note-dialog">
+    <form method="dialog" id="note-form">
+      <h2>Ajouter une note</h2>
+      <label>Date de l'échange
+        <input name="date" type="date" required>
+      </label>
+      <label>Note
+        <textarea name="text" rows="4" required maxlength="5000" placeholder="Ex. : 1er échange, gérant absent, repasser jeudi…"></textarea>
+      </label>
+      <label>Prochain échange prévu le
+        <input name="nextDate" type="date">
+      </label>
+      <p class="error" hidden></p>
+      <div class="actions">
+        <span class="spacer"></span>
+        <button type="button" data-close>Annuler</button>
+        <button type="submit" class="primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Fiche d'une cible (bouton œil) -->
+  <dialog id="detail-dialog">
+    <div id="detail-body"></div>
+    <div class="actions">
+      <span class="spacer"></span>
+      <button type="button" data-close>Fermer</button>
+    </div>
+  </dialog>
+
+  <!-- Ajout / renommage d'un commercial -->
+  <dialog id="commercial-dialog">
+    <form method="dialog" id="commercial-form">
+      <h2 id="commercial-dialog-title">Nouveau commercial</h2>
+      <label>Nom
+        <input name="name" required maxlength="100">
+      </label>
+      <p class="error" hidden></p>
+      <div class="actions">
+        <button type="button" class="danger" id="commercial-delete">Supprimer</button>
+        <span class="spacer"></span>
+        <button type="button" data-close>Annuler</button>
+        <button type="submit" class="primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
