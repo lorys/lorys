@@ -47,8 +47,9 @@ async function showBrowse(username) {
 
 async function showDiskUsage() {
   try {
-    const { usedPercent } = await api('/api/disk');
-    $('disk-usage').textContent = `Espace utilisé sur /data : ${usedPercent} %`;
+    const { usedPercent, available } = await api('/api/disk');
+    const freeGb = (available / 1e9).toLocaleString('fr-FR', { maximumFractionDigits: 1 });
+    $('disk-usage').textContent = `Espace utilisé sur /data : ${usedPercent} % · ${freeGb} Go libres`;
     $('disk-usage').hidden = false;
   } catch {
     $('disk-usage').hidden = true;
