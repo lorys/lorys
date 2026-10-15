@@ -155,6 +155,8 @@ export function buildApp(config, db, { logger = true, resolveAddress = addressFr
         notes: [],
         createdAt: new Date(),
       };
+      // Date à laquelle la cible a quitté « À démarcher » (statistiques).
+      doc.startedAt = doc.status === 'a_demarcher' ? null : doc.createdAt;
       const { insertedId } = await targets.insertOne(doc);
       return reply.code(201).send(serializeTarget({ _id: insertedId, ...doc }));
     });
@@ -170,6 +172,10 @@ export function buildApp(config, db, { logger = true, resolveAddress = addressFr
         { returnDocument: 'after' },
       );
       if (!doc) return reply.code(404).send({ error: 'Cible introuvable.' });
+      if (doc.status !== 'a_demarcher' && !doc.startedAt) {
+        doc.startedAt = new Date();
+        await targets.updateOne({ _id: doc._id }, { $set: { startedAt: doc.startedAt } });
+      }
       return serializeTarget(doc);
     });
 
@@ -190,7 +196,7 @@ export function buildApp(config, db, { logger = true, resolveAddress = addressFr
       const { matchedCount } = await targets.updateOne({ _id }, update);
       if (!matchedCount) return reply.code(404).send({ error: 'Cible introuvable.' });
       // Premier échange noté : la cible passe « en cours ».
-      await targets.updateOne({ _id, status: 'a_demarcher' }, { $set: { status: 'en_cours' } });
+      await targets.updateOne({ _id, status: 'a_demarcher' }, { $set: { status: 'en_cours', startedAt: new Date() } });
       return reply.code(201).send(serializeTarget(await targets.findOne({ _id })));
     });
 

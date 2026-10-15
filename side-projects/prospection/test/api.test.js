@@ -40,6 +40,8 @@ test('parcours complet de l\'API', { skip: !uri && 'TEST_MONGODB_URI non défini
   assert.equal(noted.notes.length, 1);
   assert.equal(noted.status, 'en_cours');
   assert.equal(noted.nextDate, '2026-10-25');
+  assert.ok(noted.startedAt);
+  assert.equal(target.startedAt, null);
 
   assert.equal((await call('POST', '/api/targets', { name: '' })).statusCode, 400);
   assert.equal((await call('DELETE', `/api/commercials/${commercial.id}`)).statusCode, 200);

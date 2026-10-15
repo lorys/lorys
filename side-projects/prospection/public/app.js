@@ -4,7 +4,7 @@ const CLOSED = new Set(['gagne', 'perdu']);
 const state = {
   commercials: [],
   targets: [],
-  tab: 'targets', // 'targets' ou l'id d'un commercial
+  tab: 'targets', // 'stats', 'targets' ou l'id d'un commercial
   focusId: null, // cible affichée en haut de l'onglet commercial (sinon : la prochaine)
   targetsQuery: '',
   commercialQuery: '',
@@ -137,14 +137,19 @@ async function start() {
 
 function readHash() {
   const id = location.hash.match(/^#c\/([a-f0-9]{24})$/)?.[1];
-  state.tab = id && state.commercials.some((c) => c.id === id) ? id : 'targets';
+  if (location.hash === '#stats') state.tab = 'stats';
+  else state.tab = id && state.commercials.some((c) => c.id === id) ? id : 'targets';
+}
+
+function isCommercialTab() {
+  return state.commercials.some((c) => c.id === state.tab);
 }
 
 function selectTab(tab) {
   state.tab = tab;
   state.focusId = null;
   state.commercialQuery = '';
-  history.replaceState(null, '', tab === 'targets' ? '#' : `#c/${tab}`);
+  history.replaceState(null, '', tab === 'targets' ? '#' : tab === 'stats' ? '#stats' : `#c/${tab}`);
   render();
   window.scrollTo(0, 0);
 }
@@ -152,11 +157,17 @@ function selectTab(tab) {
 function render() {
   renderTabs();
   const view = $('#view');
-  view.replaceChildren(state.tab === 'targets' ? renderTargetsView() : renderCommercialView());
+  if (state.tab === 'stats') view.replaceChildren(renderStatsView());
+  else view.replaceChildren(state.tab === 'targets' ? renderTargetsView() : renderCommercialView());
 }
 
 function renderTabs() {
   $('#tabs').replaceChildren(
+    h('button', {
+      type: 'button',
+      class: state.tab === 'stats' ? 'tab active' : 'tab',
+      onclick: () => selectTab('stats'),
+    }, 'Stats'),
     h('button', {
       type: 'button',
       class: state.tab === 'targets' ? 'tab active' : 'tab',
@@ -393,6 +404,176 @@ function focus(id) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+// --- Onglet « Stats » ---
+
+const WEEKS = 12;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const STATUS_ORDER = ['a_demarcher', 'en_cours', 'gagne', 'perdu'];
+
+function parseDay(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function mondayOf(date) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d;
+}
+
+function shortDate(date) {
+  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// Lundis des WEEKS dernières semaines, la semaine en cours en dernier.
+function lastWeeks() {
+  const current = mondayOf(new Date());
+  return Array.from({ length: WEEKS }, (_, i) => {
+    const d = new Date(current);
+    d.setDate(d.getDate() - 7 * (WEEKS - 1 - i));
+    return d;
+  });
+}
+
+function weeklyCounts(weeks, dates) {
+  const counts = weeks.map(() => 0);
+  for (const date of dates) {
+    // Arrondi : absorbe le décalage d'une heure aux changements d'heure.
+    const i = Math.round((mondayOf(date) - weeks[0]) / (7 * DAY_MS));
+    if (i >= 0 && i < WEEKS) counts[i]++;
+  }
+  return counts;
+}
+
+// Date à laquelle la cible a quitté « À démarcher ». Cibles antérieures au suivi de cette date :
+// premier échange noté, à défaut la date d'ajout.
+function startedDate(target) {
+  if (target.status === 'a_demarcher') return null;
+  if (target.startedAt) return new Date(target.startedAt);
+  const firstNote = target.notes.at(-1);
+  return firstNote ? parseDay(firstNote.date) : new Date(target.createdAt);
+}
+
+function percent(part, total) {
+  return total ? `${Math.round((part / total) * 100)} %` : '—';
+}
+
+function renderStatsView() {
+  const weeks = lastWeeks();
+  const targets = state.targets;
+  const byStatus = Object.fromEntries(STATUS_ORDER.map((s) => [s, targets.filter((t) => t.status === s).length]));
+  const closed = byStatus.gagne + byStatus.perdu;
+  const overdue = targets.filter((t) => t.nextDate && t.nextDate < today() && !CLOSED.has(t.status));
+
+  const added = weeklyCounts(weeks, targets.map((t) => new Date(t.createdAt)));
+  const exchanges = weeklyCounts(weeks, targets.flatMap((t) => t.notes.map((n) => parseDay(n.date))));
+
+  // Une ligne par commercial, plus « Non assigné » s'il reste des cibles sans commercial.
+  const owners = [
+    ...state.commercials.map((c) => ({ id: c.id, name: c.name })),
+    ...(targets.some((t) => !t.commercialId) ? [{ id: null, name: 'Non assigné' }] : []),
+  ].map((owner) => {
+    const mine = targets.filter((t) => t.commercialId === owner.id);
+    return {
+      ...owner,
+      mine,
+      started: weeklyCounts(weeks, mine.map(startedDate).filter(Boolean)),
+      overdue: overdue.filter((t) => t.commercialId === owner.id).length,
+    };
+  });
+  const startedMax = Math.max(1, ...owners.flatMap((o) => o.started));
+  const sum = (counts) => counts.reduce((a, b) => a + b, 0);
+  const period = `sur les ${WEEKS} dernières semaines`;
+
+  return h('div', {},
+    h('section', { class: 'tiles' },
+      statTile('Cibles', targets.length),
+      statTile('À démarcher', byStatus.a_demarcher),
+      statTile('En cours', byStatus.en_cours),
+      statTile('Gagnées', byStatus.gagne),
+      statTile('Taux de réussite', percent(byStatus.gagne, closed), closed ? `${byStatus.gagne} / ${closed} clôturées` : 'aucune clôturée'),
+      statTile('Relances en retard', overdue.length, null, overdue.length > 0),
+    ),
+    h('section', { class: 'card' },
+      chartHead('Cibles ajoutées par semaine', `${sum(added)} ${period}`),
+      columnChart(weeks, added, Math.max(1, ...added), 'ajoutée(s)'),
+    ),
+    h('section', { class: 'card' },
+      chartHead('Cibles démarchées par commercial', `Passées de « À démarcher » à un autre statut, ${period}`),
+      owners.length
+        ? owners.map((o) => h('div', { class: 'multiple' },
+          h('div', { class: 'multiple-head' }, h('strong', {}, o.name), h('span', { class: 'muted' }, String(sum(o.started)))),
+          columnChart(weeks, o.started, startedMax, 'démarchée(s)', true),
+        ))
+        : h('p', { class: 'muted' }, 'Aucun commercial pour le moment.'),
+    ),
+    h('section', { class: 'card' },
+      chartHead('Avancement par commercial', 'Statut actuel de leurs cibles'),
+      h('ul', { class: 'legend' }, STATUS_ORDER.map((s) =>
+        h('li', {}, h('span', { class: `swatch ${s}` }), STATUS_LABELS[s]))),
+      owners.length
+        ? h('ul', { class: 'breakdown' }, owners.map((o) => breakdownRow(o)))
+        : h('p', { class: 'muted' }, 'Aucun commercial pour le moment.'),
+    ),
+    h('section', { class: 'card' },
+      chartHead('Échanges notés par semaine', `${sum(exchanges)} ${period}`),
+      columnChart(weeks, exchanges, Math.max(1, ...exchanges), 'échange(s)'),
+    ),
+  );
+}
+
+function statTile(label, value, detail = null, alert = false) {
+  return h('div', { class: 'tile' },
+    h('span', { class: 'tile-label' }, label),
+    h('span', { class: alert ? 'tile-value late' : 'tile-value' }, String(value)),
+    detail ? h('span', { class: 'tile-detail' }, detail) : null,
+  );
+}
+
+function chartHead(title, subtitle) {
+  return h('div', { class: 'chart-head' }, h('h2', {}, title), h('span', { class: 'muted' }, subtitle));
+}
+
+// Histogramme hebdomadaire en HTML : une colonne par semaine, valeur au-dessus des colonnes non nulles.
+function columnChart(weeks, counts, max, unit, small = false) {
+  return h('div', {
+    class: small ? 'columns small' : 'columns',
+    role: 'img',
+    'aria-label': weeks.map((w, i) => `semaine du ${shortDate(w)} : ${counts[i]}`).join(', '),
+  }, weeks.map((week, i) =>
+    h('div', { class: 'col', title: `Semaine du ${shortDate(week)} : ${counts[i]} ${unit}` },
+      h('div', { class: 'col-plot' },
+        counts[i] ? h('span', { class: 'col-value' }, String(counts[i])) : null,
+        h('span', { class: counts[i] ? 'col-bar' : 'col-bar zero', style: `height: ${(counts[i] / max) * 100}%` }),
+      ),
+      // Une étiquette sur deux, en partant de la semaine en cours.
+      h('span', { class: 'col-label' }, (WEEKS - 1 - i) % 2 === 0 ? shortDate(week) : ''),
+    )));
+}
+
+function breakdownRow(owner) {
+  const total = owner.mine.length;
+  const counts = STATUS_ORDER.map((s) => owner.mine.filter((t) => t.status === s).length);
+  return h('li', {},
+    h('div', { class: 'multiple-head' },
+      h('strong', {}, owner.name),
+      h('span', { class: 'muted' },
+        `${total} cible${total > 1 ? 's' : ''}`,
+        owner.overdue ? h('span', { class: 'late' }, ` · ${owner.overdue} en retard`) : null,
+      ),
+    ),
+    total
+      ? h('div', { class: 'stack' }, STATUS_ORDER.map((s, i) => counts[i]
+        ? h('span', {
+          class: `segment ${s}`,
+          style: `flex-grow: ${counts[i]}`,
+          title: `${STATUS_LABELS[s]} : ${counts[i]} (${percent(counts[i], total)})`,
+        }, counts[i] / total >= 0.12 ? String(counts[i]) : '')
+        : null))
+      : h('div', { class: 'stack empty-stack' }),
+  );
+}
+
 // --- Modale cible ---
 
 let editingTarget = null;
@@ -406,7 +587,7 @@ function openTargetDialog(target = null) {
     h('option', { value: '' }, 'Non assigné'),
     ...state.commercials.map((c) => h('option', { value: c.id }, c.name)),
   );
-  const defaultCommercial = state.tab !== 'targets' ? state.tab : '';
+  const defaultCommercial = isCommercialTab() ? state.tab : '';
   form.name.value = target?.name ?? '';
   form.mapsUrl.value = target?.mapsUrl ?? '';
   form.address.value = target?.address ?? '';
