@@ -993,15 +993,12 @@ video.addEventListener('ended', () => {
 window.addEventListener('pagehide', () => saveProgress({ keepalive: true }));
 
 document.addEventListener('keydown', (event) => {
-  console.log("Debug key", event);
   if (player.handleKey(event)) return;
   if (event.key === 'Enter') {
     // Enter anywhere on the catalogue (but not while typing or on a focused button) opens downloads.
     const busy = !$('player').hidden || !$('modal').hidden || !$('downloads').hidden || !$('add-movie').hidden || $('browse-view').hidden;
-    console.log({busy}, event.target.closest('input, textarea, select, button, a'));
     if (busy || event.target.closest('input, textarea, select, button, a')) return;
     event.preventDefault();
-    console.log("opendownloads");
     openDownloads();
     return;
   }

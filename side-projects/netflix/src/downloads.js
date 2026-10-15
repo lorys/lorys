@@ -12,6 +12,15 @@ const PART_SUFFIX = '.part';
 // Finished, failed and cancelled downloads stay listed this long.
 const KEEP_DONE_MS = 60 * 60_000;
 
+const GB = 1024 ** 3;
+// Limits that keep downloads from filling the disk (all users together).
+const MAX_RUNNING = 20;
+const MAX_SIZE = 10 * GB;
+// No new download below this much free space…
+const MIN_FREE_START = 10 * GB;
+// …and a file of known size must leave this much free once it and the other running downloads are done.
+const FREE_MARGIN = 1 * GB;
+
 const EXTENSION_BY_TYPE = {
   'video/mp4': '.mp4',
   'video/x-m4v': '.m4v',
@@ -21,6 +30,23 @@ const EXTENSION_BY_TYPE = {
   'video/x-msvideo': '.avi',
   'video/ogg': '.ogv',
 };
+
+/** A download refused before it starts; `statusCode` is the HTTP status to answer with. */
+export class DownloadRefusedError extends Error {
+  constructor(message, statusCode) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+/** Disk usage of the filesystem holding `dir`, in bytes. */
+export async function diskUsage(dir) {
+  const { blocks, bfree, bavail, bsize } = await fsp.statfs(dir);
+  const used = (blocks - bfree) * bsize;
+  // Same formula as `df`: reserved blocks count neither as used nor as available.
+  const usedPercent = Math.ceil((used / (used + bavail * bsize)) * 100);
+  return { total: blocks * bsize, used, available: bavail * bsize, usedPercent };
+}
 
 /** Filename from a Content-Disposition header, or null. */
 export function filenameFromDisposition(header) {
@@ -64,9 +90,14 @@ export function pickFilename({ name: preferred, disposition, url, contentType })
   return ext ? name + ext : null;
 }
 
-export function createDownloadManager(moviesPath, { logger = console } = {}) {
+export function createDownloadManager(
+  moviesPath,
+  { logger = console, maxRunning = MAX_RUNNING, maxSize = MAX_SIZE, minFreeStart = MIN_FREE_START, freeMargin = FREE_MARGIN } = {},
+) {
   const downloads = new Map(); // id → download
   const reserved = new Set(); // filenames claimed by running downloads
+
+  const running = () => [...downloads.values()].filter((d) => d.status === 'downloading');
 
   async function exists(file) {
     return fsp.access(file).then(
@@ -108,14 +139,31 @@ export function createDownloadManager(moviesPath, { logger = console } = {}) {
       });
       if (!name) throw new Error("Ce lien ne pointe pas vers un fichier vidéo");
 
+      const total = Number(res.headers.get('content-length')) || null;
+      if (total > maxSize) {
+        res.body.cancel().catch(() => {});
+        throw new Error(`Fichier trop volumineux (${maxSize / GB} Go maximum)`);
+      }
+      if (total) {
+        // Bytes the other running downloads of known size still have to write.
+        const pending = running()
+          .filter((d) => d !== download && d.total)
+          .reduce((sum, d) => sum + Math.max(0, d.total - d.received), 0);
+        if ((await diskUsage(moviesPath)).available < total + pending + freeMargin) {
+          res.body.cancel().catch(() => {});
+          throw new Error("Pas assez d'espace disque pour ce fichier");
+        }
+      }
+
       download.filename = await claimFilename(name);
-      download.total = Number(res.headers.get('content-length')) || null;
+      download.total = total;
       const finalPath = path.join(moviesPath, download.filename);
       partPath = finalPath + PART_SUFFIX;
 
       const count = new Transform({
         transform(chunk, _encoding, callback) {
           download.received += chunk.length;
+          if (download.received > maxSize) return callback(new Error(`Fichier trop volumineux (${maxSize / GB} Go maximum)`));
           callback(null, chunk);
         },
       });
@@ -148,9 +196,17 @@ export function createDownloadManager(moviesPath, { logger = console } = {}) {
     /**
      * Start downloading `url` in the background; resolves with the new download.
      * `filename` overrides the name the server would give the file.
+     * Rejects with a DownloadRefusedError when too many downloads run or the disk is almost full.
      */
-    start(url, { filename = null } = {}) {
+    async start(url, { filename = null } = {}) {
+      if ((await diskUsage(moviesPath)).available < minFreeStart) {
+        throw new DownloadRefusedError('Espace disque insuffisant pour lancer un téléchargement', 507);
+      }
       prune();
+      // Checked after the await so concurrent requests can't all slip through.
+      if (running().length >= maxRunning) {
+        throw new DownloadRefusedError(`Trop de téléchargements en cours (${maxRunning} maximum), réessayez plus tard`, 429);
+      }
       const download = {
         id: crypto.randomBytes(6).toString('hex'),
         url,

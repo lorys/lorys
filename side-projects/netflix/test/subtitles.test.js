@@ -22,6 +22,12 @@ test('srtToVtt converts timestamps and strips SubRip-only markup', () => {
   );
 });
 
+test('srtToVtt stays fast on unclosed tags', () => {
+  const start = Date.now();
+  srtToVtt('<font'.repeat(200_000) + '{\\'.repeat(200_000));
+  assert.ok(Date.now() - start < 1000);
+});
+
 test('decodeSubtitle handles UTF-8 with BOM and Windows-1252 files', () => {
   assert.equal(decodeSubtitle(Buffer.from('﻿Été', 'utf8')), 'Été');
   assert.equal(decodeSubtitle(Buffer.from([0xc9, 0x74, 0xe9])), 'Été');
@@ -71,7 +77,7 @@ before(async () => {
     accountsSecret: 'secret',
     sessionSecret: 'session-secret',
   };
-  await writeAccounts(config.accountsPath, [{ username: 'lorys', password: hashPassword('pw') }], config.accountsSecret);
+  await writeAccounts(config.accountsPath, [{ username: 'lorys', password: await hashPassword('pw') }], config.accountsSecret);
   await scanMovies(config, { tmdb: fakeTmdb, logger: quiet });
 });
 

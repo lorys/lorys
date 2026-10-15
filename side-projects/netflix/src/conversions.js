@@ -118,10 +118,14 @@ export function createProgressParser(onSeconds) {
   };
 }
 
+// Language tags come from the file's metadata: anything else than "fr", "eng", "pt-br"… is dropped.
+const LANG_TAG = /^[a-z]{2,3}(-[a-z0-9]+)?$/;
+
 /** "Film.fr.forced.srt" next to `videoFile`, numbered when the name is taken. */
 export function subtitleSidecarName(videoFile, track, taken) {
   const base = videoFile.slice(0, videoFile.length - path.extname(videoFile).length);
-  const lang = track.lang ? (describeSubtitle([track.lang]).lang ?? track.lang.toLowerCase()) : null;
+  const tag = track.lang ? (describeSubtitle([track.lang]).lang ?? track.lang.toLowerCase()) : null;
+  const lang = tag && LANG_TAG.test(tag) ? tag : null;
   const stem = `${base}${lang ? `.${lang}` : ''}${track.forced ? '.forced' : ''}`;
   let name = `${stem}.srt`;
   for (let n = 2; taken.has(name); n++) name = `${stem}.${n}.srt`;
@@ -445,8 +449,14 @@ export function createConversionManager(
       const taken = new Set(
         (await fs.readdir(path.dirname(path.join(moviesPath, output)))).map((name) => (dir === '.' ? name : `${dir}/${name}`)),
       );
+      const outputDir = path.dirname(path.resolve(moviesPath, output));
       for (const s of sidecars) {
         const name = subtitleSidecarName(output, s, taken);
+        // Never write outside the movie's folder, whatever the track metadata says.
+        if (!path.resolve(moviesPath, name).startsWith(outputDir + path.sep)) {
+          logger.warn(`Skipping subtitle track ${s.index} of "${state.file}": unsafe file name "${name}"`);
+          continue;
+        }
         taken.add(name);
         await fs.rename(s.path, path.join(moviesPath, name));
       }

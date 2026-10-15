@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  authenticate,
   createAccountsStore,
   decryptAccounts,
   encryptAccounts,
@@ -28,18 +29,28 @@ test('accounts round-trip through encryption and reject a wrong secret', () => {
   assert.throws(() => decryptAccounts(payload, 'wrong'), /Unable to decrypt/);
 });
 
-test('verifyPassword handles hashed and clear passwords', () => {
-  assert.ok(verifyPassword('pw', hashPassword('pw')));
-  assert.ok(!verifyPassword('nope', hashPassword('pw')));
-  assert.ok(verifyPassword('pw', 'pw'));
-  assert.ok(!verifyPassword('pw', 'pw2'));
+test('verifyPassword handles hashed and clear passwords', async () => {
+  assert.ok(await verifyPassword('pw', await hashPassword('pw')));
+  assert.ok(!(await verifyPassword('nope', await hashPassword('pw'))));
+  assert.ok(await verifyPassword('pw', 'pw'));
+  assert.ok(!(await verifyPassword('pw', 'pw2')));
 });
 
-test('session tokens are signed and expire', () => {
-  const token = createSessionToken('lorys', 's', 0);
-  assert.equal(readSessionToken(token, 's', 1000), 'lorys');
+test('authenticate accepts hashed and clear passwords, and rejects unknown users', async () => {
+  const store = { read: async () => [{ username: 'a', password: await hashPassword('pw'), sessionVersion: 3 }, { username: 'b', password: 'clear' }] };
+  assert.deepEqual(await authenticate(store, 'a', 'pw'), { username: 'a', sessionVersion: 3 });
+  assert.equal(await authenticate(store, 'a', 'nope'), null);
+  assert.deepEqual(await authenticate(store, 'b', 'clear'), { username: 'b', sessionVersion: 0 });
+  assert.equal(await authenticate(store, 'b', 'nope'), null);
+  assert.equal(await authenticate(store, 'nobody', 'pw'), null);
+});
+
+test('session tokens are signed, versioned and expire', () => {
+  const token = createSessionToken('lorys', 2, 's', 0);
+  assert.deepEqual(readSessionToken(token, 's', 1000), { username: 'lorys', version: 2 });
   assert.equal(readSessionToken(token, 'other', 1000), null);
   assert.equal(readSessionToken(token.replace(/^[^.]+/, 'YWRtaW4'), 's', 1000), null);
+  assert.equal(readSessionToken(token.replace(/^([^.]+)\.2\./, '$1.3.'), 's', 1000), null, 'version is signed');
   assert.equal(readSessionToken(token, 's', Number.MAX_SAFE_INTEGER), null);
 });
 
@@ -110,7 +121,7 @@ before(async () => {
     accountsSecret: 'secret',
     sessionSecret: 'session-secret',
   };
-  await writeAccounts(config.accountsPath, [{ username: 'lorys', password: hashPassword('pw') }], config.accountsSecret);
+  await writeAccounts(config.accountsPath, [{ username: 'lorys', password: await hashPassword('pw') }], config.accountsSecret);
 });
 
 after(() => fs.rm(dir, { recursive: true, force: true }));
@@ -151,7 +162,7 @@ test('needsScan detects added and removed movies', async () => {
 });
 
 test('HTTP API: auth, movie list and ranged streaming', async () => {
-  const app = buildApp(config, { logger: false });
+  const app = buildApp(config, { logger: false, loginIntervalMs: 0 });
   try {
     assert.equal((await app.inject('/api/movies')).statusCode, 401);
 
@@ -188,6 +199,53 @@ test('HTTP API: auth, movie list and ranged streaming', async () => {
     assert.ok(disk.usedPercent >= 0 && disk.usedPercent <= 100);
   } finally {
     await app.close();
+  }
+});
+
+test('HTTP API: security headers and login rate limit', async () => {
+  const app = buildApp(config, { logger: false });
+  try {
+    const page = await app.inject('/');
+    assert.match(page.headers['content-security-policy'], /frame-ancestors 'none'/);
+    assert.equal(page.headers['x-content-type-options'], 'nosniff');
+    assert.equal(page.headers['x-frame-options'], 'DENY');
+
+    const login = await app.inject({ method: 'POST', url: '/api/login', payload: { username: 'lorys', password: 'pw' } });
+    assert.equal(login.statusCode, 200);
+    assert.equal(login.cookies.find((c) => c.name === 'session').secure, true);
+    const again = await app.inject({ method: 'POST', url: '/api/login', payload: { username: 'lorys', password: 'pw' } });
+    assert.equal(again.statusCode, 429);
+  } finally {
+    await app.close();
+  }
+});
+
+test('HTTP API: logout and account removal revoke sessions', async () => {
+  const app = buildApp(config, { logger: false, loginIntervalMs: 0 });
+  const signIn = async () => {
+    const login = await app.inject({ method: 'POST', url: '/api/login', payload: { username: 'lorys', password: 'pw' } });
+    return { session: login.cookies.find((c) => c.name === 'session').value };
+  };
+  const saved = await fs.readFile(config.accountsPath, 'utf8');
+  try {
+    const phone = await signIn();
+    const laptop = await signIn();
+    assert.equal((await app.inject({ url: '/api/me', cookies: phone })).statusCode, 200);
+
+    // Logging out on one device logs out every device.
+    assert.equal((await app.inject({ method: 'POST', url: '/api/logout', cookies: phone })).statusCode, 200);
+    assert.equal((await app.inject({ url: '/api/me', cookies: phone })).statusCode, 401);
+    assert.equal((await app.inject({ url: '/api/me', cookies: laptop })).statusCode, 401);
+
+    const fresh = await signIn();
+    assert.equal((await app.inject({ url: '/api/me', cookies: fresh })).json().username, 'lorys');
+
+    // Removed with the accounts CLI: the cookie stops working.
+    await writeAccounts(config.accountsPath, [], config.accountsSecret);
+    assert.equal((await app.inject({ url: '/api/me', cookies: fresh })).statusCode, 401);
+  } finally {
+    await app.close();
+    await fs.writeFile(config.accountsPath, saved);
   }
 });
 
@@ -244,7 +302,7 @@ test('HTTP API: watch progress is stored in the accounts file', async () => {
     // Persisted, encrypted, next to the credentials.
     const [account] = await readAccounts(config.accountsPath, config.accountsSecret);
     assert.equal(account.progress[id].position, 1235);
-    assert.ok(verifyPassword('pw', account.password));
+    assert.ok(await verifyPassword('pw', account.password));
     assert.ok(!(await fs.readFile(config.accountsPath, 'utf8')).includes('progress'));
 
     // Reaching the credits clears it.

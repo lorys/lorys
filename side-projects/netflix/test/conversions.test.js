@@ -177,6 +177,10 @@ test('subtitleSidecarName follows the naming read by the subtitle service', () =
   assert.equal(subtitleSidecarName('d/Film.mp4', { lang: 'fra', forced: false }, taken), 'd/Film.fr.2.srt');
   assert.equal(subtitleSidecarName('Film.mp4', { lang: null, forced: false }, new Set()), 'Film.srt');
   assert.equal(subtitleSidecarName('Film.mp4', { lang: 'xyz', forced: false }, new Set()), 'Film.xyz.srt');
+  assert.equal(subtitleSidecarName('Film.mp4', { lang: 'pt-BR', forced: false }, new Set()), 'Film.pt-br.srt');
+  // Language tags come from the file: anything that isn't a plain tag can't reach the file name.
+  assert.equal(subtitleSidecarName('d/Film.mp4', { lang: 'x/../../../../etc/cron', forced: false }, new Set()), 'd/Film.srt');
+  assert.equal(subtitleSidecarName('d/Film.mp4', { lang: '..', forced: true }, new Set()), 'd/Film.forced.srt');
 });
 
 let dir;

@@ -1,10 +1,11 @@
-// Accounts are a JSON array of { username, password, progress?, watched? } encrypted with AES-256-GCM.
+// Accounts are a JSON array of { username, password, sessionVersion?, progress?, watched? } encrypted with AES-256-GCM.
 // File layout (base64): salt(16) | iv(12) | authTag(16) | ciphertext.
 // The key is derived from ACCOUNTS_SECRET with scrypt and the per-file salt.
 // Passwords may be stored in clear (inside the encrypted file) or as
 // "scrypt:<salt>:<hash>" hashes, which is what the accounts CLI writes.
 // `progress` maps a movie id to { position, duration, updatedAt } (seconds / ISO date).
 // `watched` maps a movie or episode id to the ISO date it was last watched to the end.
+// `sessionVersion` (missing = 0) is part of every session token: bumping it logs the user out everywhere.
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import { promisify } from 'node:util';
@@ -133,18 +134,18 @@ export function createAccountsStore(filePath, secret) {
   };
 }
 
-export function hashPassword(password) {
+export async function hashPassword(password) {
   const salt = crypto.randomBytes(16);
-  const hash = crypto.scryptSync(password, salt, 64);
+  const hash = await scrypt(password, salt, 64);
   return `scrypt:${salt.toString('base64')}:${hash.toString('base64')}`;
 }
 
-export function verifyPassword(password, stored) {
+export async function verifyPassword(password, stored) {
   if (typeof password !== 'string' || typeof stored !== 'string') return false;
   if (stored.startsWith('scrypt:')) {
     const [, salt, hash] = stored.split(':');
     const expected = Buffer.from(hash, 'base64');
-    const actual = crypto.scryptSync(password, Buffer.from(salt, 'base64'), expected.length);
+    const actual = await scrypt(password, Buffer.from(salt, 'base64'), expected.length);
     return crypto.timingSafeEqual(actual, expected);
   }
   // Clear-text password: compare digests so lengths always match.
@@ -153,10 +154,24 @@ export function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(a, b);
 }
 
+// Hash checked for unknown users and clear-text passwords, computed once.
+let dummyHash = null;
+
+/**
+ * Returns `{ username, sessionVersion }` or null. Every attempt runs exactly one scrypt,
+ * so response time doesn't reveal which usernames exist or how their password is stored.
+ */
 export async function authenticate(store, username, password) {
   const accounts = await store.read();
   const account = accounts.find((a) => a.username === username);
-  // Hash anyway on unknown users so response time doesn't reveal which usernames exist.
-  const ok = verifyPassword(password ?? '', account ? account.password : hashPassword('dummy'));
-  return account && ok ? account.username : null;
+  const stored = account?.password;
+  dummyHash ??= hashPassword('dummy');
+  let ok;
+  if (typeof stored === 'string' && stored.startsWith('scrypt:')) {
+    ok = await verifyPassword(password ?? '', stored);
+  } else {
+    await verifyPassword(password ?? '', await dummyHash);
+    ok = typeof stored === 'string' && (await verifyPassword(password ?? '', stored));
+  }
+  return account && ok ? { username: account.username, sessionVersion: account.sessionVersion ?? 0 } : null;
 }

@@ -24,9 +24,14 @@ switch (command) {
     const [username, password] = args;
     if (!username || !password) usage();
     const index = accounts.findIndex((a) => a.username === username);
-    // Changing the password keeps the user's watch progress.
-    if (index === -1) accounts.push({ username, password: hashPassword(password) });
-    else accounts[index].password = hashPassword(password);
+    const hash = await hashPassword(password);
+    // Changing the password keeps the user's watch progress, but logs out all their devices.
+    if (index === -1) {
+      accounts.push({ username, password: hash });
+    } else {
+      accounts[index].password = hash;
+      accounts[index].sessionVersion = (accounts[index].sessionVersion ?? 0) + 1;
+    }
     await writeAccounts(accountsPath, accounts, accountsSecret);
     console.log(`${index === -1 ? 'Compte créé' : 'Mot de passe mis à jour'} : ${username}`);
     break;

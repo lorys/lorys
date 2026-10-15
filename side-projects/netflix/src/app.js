@@ -10,7 +10,7 @@ import { authenticate, createAccountsStore } from './accounts.js';
 import { createSessionToken, readSessionToken, SESSION_COOKIE, SESSION_TTL_MS } from './session.js';
 import { readMoviesInfos } from './scanner.js';
 import { createConversionManager } from './conversions.js';
-import { createDownloadManager } from './downloads.js';
+import { createDownloadManager, diskUsage, DownloadRefusedError } from './downloads.js';
 import { createSubtitlesService } from './subtitles.js';
 import { addAMovie } from './addAMovie.js';
 
@@ -19,6 +19,24 @@ const PENDING_MOVIE_TTL_MS = 15 * 60_000;
 
 // A user counts as watching while their player saved progress this recently (it saves every 10 s).
 const WATCHING_TTL_MS = 30_000;
+
+// At most one login attempt every this long, all clients together (brute force and scrypt load).
+const LOGIN_INTERVAL_MS = 2_000;
+
+// Everything is served from this origin, except posters and backdrops (TMDB, or wherever add-movie found them).
+const SECURITY_HEADERS = {
+  'Content-Security-Policy': [
+    "default-src 'self'",
+    "img-src 'self' https: data:",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join('; '),
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+};
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 
@@ -73,7 +91,7 @@ export function parseRange(header, size) {
   return { start, end };
 }
 
-export function buildApp(config, { logger = true, conversions } = {}) {
+export function buildApp(config, { logger = true, conversions, loginIntervalMs = LOGIN_INTERVAL_MS } = {}) {
   const app = Fastify({ logger });
   const getInfos = createInfosCache(config.moviesInfosPath);
   const accounts = createAccountsStore(config.accountsPath, config.accountsSecret);
@@ -84,17 +102,29 @@ export function buildApp(config, { logger = true, conversions } = {}) {
   app.addHook('onClose', () => downloads.close());
   app.addHook('onClose', () => conversions.close());
 
+  app.addHook('onSend', async (request, reply) => {
+    reply.headers(SECURITY_HEADERS);
+  });
+
   app.register(fastifyCookie);
   app.register(fastifyStatic, { root: PUBLIC_DIR });
 
+  // `session` is what the cookie claims; `user` is only set once requireUser checked it against the account.
+  app.decorateRequest('session', null);
   app.decorateRequest('user', null);
   app.addHook('onRequest', async (request) => {
-    request.user = readSessionToken(request.cookies[SESSION_COOKIE], config.sessionSecret);
+    request.session = readSessionToken(request.cookies[SESSION_COOKIE], config.sessionSecret);
   });
 
+  // The account must still exist and not have revoked its sessions (logout, password change).
   const requireUser = async (request, reply) => {
-    if (!request.user) return reply.code(401).send({ error: 'Non authentifié' });
+    const { session } = request;
+    const account = session && (await accounts.read()).find((a) => a.username === session.username);
+    if (!account || (account.sessionVersion ?? 0) !== session.version) return reply.code(401).send({ error: 'Non authentifié' });
+    request.user = account.username;
   };
+
+  let lastLoginAt = -Infinity;
 
   app.post('/api/login', {
     schema: {
@@ -105,20 +135,37 @@ export function buildApp(config, { logger = true, conversions } = {}) {
       },
     },
     handler: async (request, reply) => {
-      const username = await authenticate(accounts, request.body.username, request.body.password);
-      if (!username) return reply.code(401).send({ error: 'Identifiant ou mot de passe incorrect' });
-      reply.setCookie(SESSION_COOKIE, createSessionToken(username, config.sessionSecret), {
+      // Refused before any scrypt work, so a flood of attempts costs nothing.
+      const now = Date.now();
+      if (now - lastLoginAt < loginIntervalMs) {
+        return reply
+          .code(429)
+          .header('Retry-After', Math.ceil(loginIntervalMs / 1000))
+          .send({ error: 'Trop de tentatives de connexion, réessayez dans quelques secondes' });
+      }
+      lastLoginAt = now;
+      const user = await authenticate(accounts, request.body.username, request.body.password);
+      if (!user) return reply.code(401).send({ error: 'Identifiant ou mot de passe incorrect' });
+      reply.setCookie(SESSION_COOKIE, createSessionToken(user.username, user.sessionVersion, config.sessionSecret), {
         path: '/',
         httpOnly: true,
         sameSite: 'lax',
-        secure: request.protocol === 'https',
+        secure: true,
         maxAge: SESSION_TTL_MS / 1000,
       });
-      return { username };
+      return { username: user.username };
     },
   });
 
+  // Revokes every session of the user (all devices), not just this cookie.
   app.post('/api/logout', async (request, reply) => {
+    const { session } = request;
+    if (session) {
+      await accounts.update((list) => {
+        const account = list.find((a) => a.username === session.username);
+        if (account && (account.sessionVersion ?? 0) === session.version) account.sessionVersion = session.version + 1;
+      });
+    }
     reply.clearCookie(SESSION_COOKIE, { path: '/' });
     return { ok: true };
   });
@@ -141,13 +188,7 @@ export function buildApp(config, { logger = true, conversions } = {}) {
   app.get('/api/conversions', { preHandler: requireUser }, async () => conversions.list());
 
   // Disk usage of the filesystem holding the data folder (/data in Docker).
-  app.get('/api/disk', { preHandler: requireUser }, async () => {
-    const { blocks, bfree, bavail, bsize } = await fsp.statfs(path.dirname(config.moviesInfosPath));
-    const used = (blocks - bfree) * bsize;
-    // Same formula as `df`: reserved blocks count neither as used nor as available.
-    const usedPercent = Math.ceil((used / (used + bavail * bsize)) * 100);
-    return { total: blocks * bsize, used, available: bavail * bsize, usedPercent };
-  });
+  app.get('/api/disk', { preHandler: requireUser }, async () => diskUsage(path.dirname(config.moviesInfosPath)));
 
   // ---------- Watch progress (stored per account in ACCOUNTS_PATH) ----------
 
@@ -240,6 +281,16 @@ export function buildApp(config, { logger = true, conversions } = {}) {
 
   app.get('/api/downloads', { preHandler: requireUser }, async () => downloads.list());
 
+  // 201 with the new download, or the reason it was refused (too many running, disk almost full).
+  const startDownload = async (reply, href, options) => {
+    try {
+      return reply.code(201).send(await downloads.start(href, options));
+    } catch (err) {
+      if (!(err instanceof DownloadRefusedError)) throw err;
+      return reply.code(err.statusCode).send({ error: err.message });
+    }
+  };
+
   app.post('/api/downloads', {
     preHandler: requireUser,
     schema: {
@@ -257,7 +308,7 @@ export function buildApp(config, { logger = true, conversions } = {}) {
       if (!url || !['http:', 'https:'].includes(url.protocol)) {
         return reply.code(400).send({ error: 'Lien invalide (http ou https attendu)' });
       }
-      return reply.code(201).send(downloads.start(url.href));
+      return startDownload(reply, url.href);
     },
   });
 
@@ -346,7 +397,7 @@ export function buildApp(config, { logger = true, conversions } = {}) {
       request.log.error({ link }, 'addAMovie returned an invalid link');
       return reply.code(502).send({ error: 'Le lien de téléchargement obtenu est invalide' });
     }
-    return reply.code(201).send(downloads.start(url.href, { filename: typeof filename === 'string' ? filename : null }));
+    return startDownload(reply, url.href, { filename: typeof filename === 'string' ? filename : null });
   });
 
   // ---------- Subtitles (sidecar .srt/.vtt files and text tracks embedded in the video) ----------

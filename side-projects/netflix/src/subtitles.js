@@ -97,8 +97,9 @@ export function srtToVtt(srt) {
     .trim()
     .replace(/(\d{1,2}:\d{2}:\d{2})[,.](\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2})[,.](\d{3})/g, '$1.$2 --> $3.$4')
     // SubRip font tags and ASS-style {\an8} overrides aren't valid WebVTT.
-    .replace(/<\/?font[^>]*>/gi, '')
-    .replace(/\{\\[^}]*\}/g, '');
+    // Bounded so a tag that never closes can't make each match scan the rest of the file (ReDoS).
+    .replace(/<\/?font[^>\n]{0,200}>/gi, '')
+    .replace(/\{\\[^}\n]{0,200}\}/g, '');
   return `WEBVTT\n\n${body}\n`;
 }
 
@@ -137,6 +138,9 @@ export async function findEmbeddedSubtitles(videoPath) {
     return [];
   }
 }
+
+// A real subtitle file is a few hundred KB; anything bigger is refused rather than parsed.
+const MAX_SUBTITLE_FILE_SIZE = 5 * 1024 * 1024;
 
 /** Lists and serves the subtitles of a movie; embedded tracks are extracted once and cached in `cacheDir`. */
 export function createSubtitlesService(moviesPath, cacheDir) {
@@ -177,6 +181,8 @@ export function createSubtitlesService(moviesPath, cacheDir) {
 
   async function read(movie, track) {
     if (track.stream !== undefined) return extract(movie, track);
+    const { size } = await fs.stat(track.path);
+    if (size > MAX_SUBTITLE_FILE_SIZE) throw new Error(`Subtitle file too large (${size} bytes): ${track.path}`);
     const text = decodeSubtitle(await fs.readFile(track.path));
     return path.extname(track.path).toLowerCase() === '.vtt' ? text : srtToVtt(text);
   }
