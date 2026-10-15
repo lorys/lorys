@@ -152,6 +152,15 @@ main > div { display: grid; gap: 1rem; }
 .badge.gagne { background: #e3f5e8; color: #1f7a3a; }
 .badge.perdu { background: #f3f4f6; color: #9ca3af; text-decoration: line-through; }
 
+/* Filtre par statut */
+
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.chip { font-size: .8rem; padding: .25em .75em; border-radius: 99px; color: var(--muted); background: var(--surface); }
+.chip.on { border-color: transparent; background: var(--line); color: var(--text); font-weight: 600; }
+.chip.on.en_cours { background: var(--accent-soft); color: var(--accent); }
+.chip.on.gagne { background: #e3f5e8; color: #1f7a3a; }
+.chip.on.perdu { background: #f3f4f6; color: #6b7280; }
+
 /* Cartes */
 
 .card {

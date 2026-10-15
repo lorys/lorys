@@ -1,4 +1,5 @@
 const STATUS_LABELS = { a_demarcher: 'À démarcher', en_cours: 'En cours', gagne: 'Gagné', perdu: 'Perdu' };
+const STATUS_ORDER = ['a_demarcher', 'en_cours', 'gagne', 'perdu'];
 const CLOSED = new Set(['gagne', 'perdu']);
 
 const state = {
@@ -8,6 +9,9 @@ const state = {
   focusId: null, // cible affichée en haut de l'onglet commercial (sinon : la prochaine)
   targetsQuery: '',
   commercialQuery: '',
+  // Statuts affichés : liste « Cibles » et « Prochains prospects » (par défaut, cibles ouvertes).
+  targetsStatuses: new Set(STATUS_ORDER),
+  upcomingStatuses: new Set(STATUS_ORDER.filter((s) => !CLOSED.has(s))),
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -194,7 +198,7 @@ function renderTabs() {
 function renderTargetsView() {
   const list = h('ul', { class: 'list' });
   const fill = () => {
-    const items = state.targets.filter((t) => matches(t, state.targetsQuery));
+    const items = state.targets.filter((t) => state.targetsStatuses.has(t.status) && matches(t, state.targetsQuery));
     list.replaceChildren(
       ...items.map(targetRow),
       items.length ? null : h('li', { class: 'empty' }, state.targets.length ? 'Aucun résultat.' : 'Aucune cible pour le moment.'),
@@ -215,6 +219,7 @@ function renderTargetsView() {
         fill();
       },
     }),
+    statusFilter(state.targetsStatuses),
     list,
   );
 }
@@ -248,6 +253,22 @@ function eyeIcon() {
   svg.setAttribute('height', '22');
   svg.innerHTML = '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/>';
   return svg;
+}
+
+// Filtre par statut : chaque puce active ou désactive un statut.
+function statusFilter(selected) {
+  return h('div', { class: 'chips', role: 'group', 'aria-label': 'Filtrer par statut' },
+    STATUS_ORDER.map((s) => h('button', {
+      type: 'button',
+      class: selected.has(s) ? `chip ${s} on` : `chip ${s}`,
+      'aria-pressed': String(selected.has(s)),
+      onclick: () => {
+        if (selected.has(s)) selected.delete(s);
+        else selected.add(s);
+        render();
+      },
+    }, STATUS_LABELS[s])),
+  );
 }
 
 // --- Fiche d'une cible (réutilisée dans l'onglet commercial et la modale « œil ») ---
@@ -345,7 +366,7 @@ function renderCommercialView() {
   };
   fillResults();
 
-  const upcoming = open.filter((t) => t !== current);
+  const upcoming = mine.filter((t) => t !== current && state.upcomingStatuses.has(t.status));
 
   return h('div', {},
     current
@@ -359,6 +380,7 @@ function renderCommercialView() {
       ),
     h('section', { class: 'card' },
       h('h2', {}, 'Prochains prospects'),
+      statusFilter(state.upcomingStatuses),
       upcoming.length
         ? h('ul', { class: 'list' }, upcoming.map((t) => prospectRow(t)))
         : h('p', { class: 'muted' }, 'Rien d\'autre de prévu.'),
@@ -408,8 +430,6 @@ function focus(id) {
 
 const WEEKS = 12;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const STATUS_ORDER = ['a_demarcher', 'en_cours', 'gagne', 'perdu'];
-
 function parseDay(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(y, m - 1, d);
