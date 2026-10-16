@@ -77,7 +77,8 @@ export async function addASerie(name, season = 1) {
 
     let allDownloadLinks = [];
 
-    if ((foundSeason = allWantedSeasons.find(e => e[1].indexOf(`Saison ${season}`)))) {
+    let foundSeason = allWantedSeasons.find(e => e[1].indexOf(`Saison ${season}`));
+    if (foundSeason) {
       const wantedSeasonQ = await fetch(`https://${ztdomain}/${foundSeason[0]}`);
       const wantedSeasonData = await wantedSeasonQ.text();
 
@@ -97,7 +98,10 @@ export async function addASerie(name, season = 1) {
         ...(Array.from(wantedSeasonData.matchAll(/(?<=Rapidgator(?:(?!<br\s*\/>)[\s\S])*?)<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
         ...(Array.from(wantedSeasonData.matchAll(/(?<=Nitroflare(?:(?!<br\s*\/>)[\s\S])*?)<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()]))
       ];
-    } else if (currentPageSeason === season && (foundRightQuality = currentPageAvailableQualities.find(e => e[1].indexOf('VOSTFR')))) {
+    }
+
+    let foundRightQuality = currentPageAvailableQualities.find(e => e[1].indexOf('VOSTFR'));
+    if (!allDownloadLinks.length && currentPageSeason === season && foundRightQuality) {
       const wantedQualityQ = await fetch(`https://${ztdomain}/${foundRightQuality[0]}`);
       const wantedQualityData = await wantedQualityQ.text();
       allDownloadLinks = [
