@@ -75,9 +75,9 @@ export async function addASerie(name, season = 1) {
       currentPageQuality
     }, null, 2));
 
-    allDownloadLinks = [];
+    let allDownloadLinks = [];
 
-    if (foundSeason = allWantedSeasons.find(e => e[1].indexOf(`Saison ${season}`))) {
+    if ((foundSeason = allWantedSeasons.find(e => e[1].indexOf(`Saison ${season}`)))) {
       const wantedSeasonQ = await fetch(`https://${ztdomain}/${foundSeason[0]}`);
       const wantedSeasonData = await wantedSeasonQ.text();
 
