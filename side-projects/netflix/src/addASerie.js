@@ -137,7 +137,7 @@ export async function addASerie(name, season = 1) {
         download: async () => {
             const results = await Promise.allSettled(Object.keys(allDownloadLinks).map(async episode => {
               for (let i = 0; allDownloadLinks[episode][i]; i++) {
-                const url = allDownloadLinks[episode];
+                const url = allDownloadLinks[episode][i];
                 try {
                     let links;
                     try {
