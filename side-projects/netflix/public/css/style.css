@@ -927,6 +927,14 @@ button { font: inherit; cursor: pointer; }
 .add-movie__size { color: var(--muted); margin: 0 0 1rem; }
 .add-movie__status { margin: 1rem 0 0; font-size: 0.9rem; color: var(--muted); }
 .add-movie__status--error { color: #e87c03; }
+.add-movie__kind { display: inline-flex; margin: 0 0 1rem; border: 1px solid #555; border-radius: 4px; overflow: hidden; }
+.add-movie__kind input { position: absolute; opacity: 0; pointer-events: none; }
+.add-movie__kind span { display: block; padding: 0.4rem 1.1rem; font-size: 0.9rem; color: var(--muted); cursor: pointer; }
+.add-movie__kind input:checked + span { background: #fff; color: #141414; font-weight: 600; }
+.add-movie__kind input:focus-visible + span { outline: 2px solid #fff; outline-offset: -4px; }
+.add-movie__season { flex: 0 0 6rem; width: 6rem; }
+.add-movie__note { margin: 0.6rem 0 0; font-size: 0.85rem; color: var(--muted); }
+.add-movie__hint-slow { display: block; margin-top: 0.2rem; font-size: 0.8rem; opacity: 0.75; }
 @media (max-width: 500px) {
   .add-movie__found { flex-direction: column; }
 }

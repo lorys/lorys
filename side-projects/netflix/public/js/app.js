@@ -755,21 +755,47 @@ $('downloads').addEventListener('click', (event) => {
   if (event.target.closest('[data-close]')) closeDownloads();
 });
 
-// ---------- Add a movie by its exact name ----------
+// ---------- Add a movie, or a whole season of a series, by its exact name ----------
 
 // Movies found by the server, waiting for the user to pick one: [{ token, movieName, imgUrl, size }].
 let addMovieChoices = null;
-// The picked movie, waiting for the user to confirm.
+// The picked movie, or the found season ({ token, movieName, imgUrl, season }), waiting for the user to confirm.
 let addMovieFound = null;
 // Bumped on every request and on close, so a late answer doesn't land in a closed or reset modal.
 let addMovieRequest = 0;
 
-function setAddMovieStatus(text, { error = false } = {}) {
+// `slow` adds a discreet line telling that the answer can take a while.
+function setAddMovieStatus(text, { error = false, slow = false } = {}) {
   const status = $('add-movie-status');
   status.hidden = !text;
   status.textContent = text;
   status.classList.toggle('add-movie__status--error', error);
+  if (slow) {
+    const hint = document.createElement('span');
+    hint.className = 'add-movie__hint-slow';
+    hint.textContent = 'Pour une série, cela peut prendre un peu plus de temps.';
+    status.append(hint);
+  }
 }
+
+const addingSerie = () => $('add-movie-form').kind.value === 'serie';
+
+function applyAddMovieKind() {
+  const serie = addingSerie();
+  $('add-movie-title').textContent = serie ? 'Ajouter une série' : 'Ajouter un film';
+  $('add-movie-hint').textContent = serie ? 'Tapez le nom exact de la série et la saison voulue.' : 'Tapez le nom exact du film.';
+  $('add-movie-name').placeholder = serie ? 'Nom exact de la série' : 'Nom exact du film';
+  $('add-movie-season').hidden = !serie;
+  $('add-movie-season').disabled = !serie;
+  $('add-movie-season-note').hidden = !serie;
+}
+
+$('add-movie-form').addEventListener('change', (event) => {
+  if (event.target.name !== 'kind') return;
+  applyAddMovieKind();
+  setAddMovieStatus('');
+  $('add-movie-name').focus();
+});
 
 function showAddMovieForm() {
   addMovieRequest++;
@@ -824,6 +850,8 @@ function showAddMovieConfirm(movie) {
   $('add-movie-poster').hidden = !movie.imgUrl;
   $('add-movie-poster').src = movie.imgUrl ?? '';
   $('add-movie-poster').alt = `Affiche de ${movie.movieName}`;
+  $('add-movie-question').textContent = movie.season != null ? `Télécharger toute la saison ${movie.season} (tous ses épisodes) ?` : 'Télécharger ce film ?';
+  $('add-movie-form').hidden = true;
   $('add-movie-choices').hidden = true;
   $('add-movie-found').hidden = false;
   $('add-movie-confirm').disabled = false;
@@ -834,6 +862,9 @@ function showAddMovieConfirm(movie) {
 
 function openAddMovie(name = '') {
   $('add-movie-name').value = name;
+  $('add-movie-form').kind.value = 'movie';
+  $('add-movie-season').value = '1';
+  applyAddMovieKind();
   $('add-movie').hidden = false;
   document.body.classList.add('no-scroll');
   showAddMovieForm();
@@ -853,6 +884,22 @@ $('add-movie-form').addEventListener('submit', async (event) => {
   if (!name) return;
   const request = ++addMovieRequest;
   $('add-movie-send').disabled = true;
+  if (addingSerie()) {
+    const season = Number($('add-movie-season').value);
+    setAddMovieStatus('Recherche de la série…', { slow: true });
+    try {
+      const found = await api('/api/add-serie', { method: 'POST', body: JSON.stringify({ name, season }) });
+      if (request !== addMovieRequest) return;
+      addMovieChoices = null;
+      showAddMovieConfirm({ token: found.token, movieName: found.serieName, imgUrl: found.imgUrl, season: found.season });
+    } catch (err) {
+      if (request !== addMovieRequest) return;
+      $('add-movie-send').disabled = false;
+      setAddMovieStatus(err.message, { error: true });
+      $('add-movie-name').focus();
+    }
+    return;
+  }
   setAddMovieStatus('Recherche du film…');
   try {
     const { movies } = await api('/api/add-movie', { method: 'POST', body: JSON.stringify({ name }) });
@@ -877,10 +924,23 @@ $('add-movie-confirm').addEventListener('click', async () => {
   const request = ++addMovieRequest;
   $('add-movie-confirm').disabled = true;
   $('add-movie-back').disabled = true;
-  setAddMovieStatus('Préparation du téléchargement…');
+  const serie = addMovieFound.season != null;
+  if (serie) setAddMovieStatus('Récupération des épisodes de la saison…', { slow: true });
+  else setAddMovieStatus('Préparation du téléchargement…');
   try {
-    await api(`/api/add-movie/${addMovieFound.token}/download`, { method: 'POST' });
+    const result = await api(`/api/${serie ? 'add-serie' : 'add-movie'}/${addMovieFound.token}/download`, { method: 'POST' });
     if (request !== addMovieRequest) return;
+    if (serie && result.failed.length) {
+      // Some episodes couldn't start: say which before moving on, the others are already downloading.
+      addMovieChoices = null;
+      $('add-movie-back').disabled = false;
+      const names = result.failed.map((f) => f.filename).join(', ');
+      setAddMovieStatus(
+        `${result.started.length} épisode(s) en téléchargement, ${result.failed.length} non lancé(s) (${result.failed[0].error}) : ${names}`,
+        { error: true },
+      );
+      return;
+    }
     // From here on it's a regular download: follow it in the downloads modal.
     closeAddMovie();
     openDownloads();

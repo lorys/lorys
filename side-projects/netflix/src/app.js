@@ -13,8 +13,9 @@ import { createConversionManager } from './conversions.js';
 import { createDownloadManager, diskUsage, DownloadRefusedError } from './downloads.js';
 import { createSubtitlesService } from './subtitles.js';
 import { addAMovie } from './addAMovie.js';
+import { addASerie } from './addASerie.js';
 
-// Movies found by addAMovie() wait this long for the user to pick one and confirm the download.
+// Movies found by addAMovie() and seasons found by addASerie() wait this long for the user to pick one and confirm the download.
 const PENDING_MOVIE_TTL_MS = 15 * 60_000;
 
 // A user counts as watching while their player saved progress this recently (it saves every 10 s).
@@ -398,6 +399,102 @@ export function buildApp(config, { logger = true, conversions, loginIntervalMs =
       return reply.code(502).send({ error: 'Le lien de téléchargement obtenu est invalide' });
     }
     return startDownload(reply, url.href, { filename: typeof filename === 'string' ? filename : null });
+  });
+
+  // ---------- Adding a whole season of a series by its exact name ----------
+
+  // Same flow as movies, but addASerie() finds a single season whose `download` callback gives one link per episode.
+  const pendingSeasons = new Map(); // token → { username, download, expiresAt }
+
+  const prunePendingSeasons = () => {
+    for (const [token, pending] of pendingSeasons) {
+      if (pending.expiresAt < Date.now()) pendingSeasons.delete(token);
+    }
+  };
+
+  app.post('/api/add-serie', {
+    preHandler: requireUser,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name', 'season'],
+        properties: { name: { type: 'string', minLength: 1, maxLength: 300 }, season: { type: 'integer', minimum: 0, maximum: 1000 } },
+      },
+    },
+    handler: async (request, reply) => {
+      const name = request.body.name.trim();
+      const { season } = request.body;
+      if (!name) return reply.code(400).send({ error: 'Indiquez le nom de la série' });
+      let found;
+      try {
+        found = await addASerie(name, season);
+      } catch (err) {
+        request.log.error(err, 'addASerie failed');
+        return reply.code(502).send({ error: 'La recherche de la série a échoué' });
+      }
+      if (found && found.ok === false && found.error !== 'not found') {
+        return reply.code(404).send({ error: String(found.error) });
+      }
+      if (typeof found?.download !== 'function') {
+        if (found && found.ok !== false) {
+          request.log.error('addASerie returned a season without a download callback');
+          return reply.code(502).send({ error: 'La recherche de la série a échoué' });
+        }
+        return reply.code(404).send({ error: `Aucune saison ${season} trouvée pour « ${name} »` });
+      }
+      prunePendingSeasons();
+      const token = crypto.randomBytes(12).toString('hex');
+      pendingSeasons.set(token, { username: request.user, download: found.download, expiresAt: Date.now() + PENDING_MOVIE_TTL_MS });
+      return { token, serieName: found.serieName ?? name, imgUrl: found.imgUrl ?? null, season };
+    },
+  });
+
+  // Starts one download per episode. 201 as soon as one started; `failed` lists the episodes that didn't.
+  app.post('/api/add-serie/:token/download', { preHandler: requireUser }, async (request, reply) => {
+    prunePendingSeasons();
+    const pending = pendingSeasons.get(request.params.token);
+    if (!pending || pending.username !== request.user) {
+      return reply.code(404).send({ error: 'Cette recherche a expiré, recommencez' });
+    }
+    pendingSeasons.delete(request.params.token);
+    let episodes;
+    try {
+      episodes = await pending.download();
+    } catch (err) {
+      request.log.error(err, 'addASerie download callback failed');
+      return reply.code(502).send({ error: "Impossible d'obtenir les liens des épisodes" });
+    }
+    if (!Array.isArray(episodes) || !episodes.filter(Boolean).length) {
+      request.log.error({ episodes }, 'addASerie returned no episode links');
+      return reply.code(502).send({ error: "Aucun lien d'épisode n'a été obtenu" });
+    }
+    const started = [];
+    const failed = [];
+    let refused = null;
+    for (const { link, filename } of episodes.filter(Boolean)) {
+      const label = typeof filename === 'string' ? filename : String(link);
+      let url;
+      try {
+        url = new URL(String(link));
+      } catch {}
+      if (!url || !['http:', 'https:'].includes(url.protocol)) {
+        request.log.error({ link }, 'addASerie returned an invalid link');
+        failed.push({ filename: label, error: 'Lien de téléchargement invalide' });
+        continue;
+      }
+      try {
+        started.push(await downloads.start(url.href, { filename: typeof filename === 'string' ? filename : null }));
+      } catch (err) {
+        if (!(err instanceof DownloadRefusedError)) throw err;
+        refused ??= err;
+        failed.push({ filename: label, error: err.message });
+      }
+    }
+    if (!started.length) {
+      if (refused) return reply.code(refused.statusCode).send({ error: refused.message });
+      return reply.code(502).send({ error: 'Les liens de téléchargement obtenus sont invalides' });
+    }
+    return reply.code(201).send({ started, failed });
   });
 
   // ---------- Subtitles (sidecar .srt/.vtt files and text tracks embedded in the video) ----------
