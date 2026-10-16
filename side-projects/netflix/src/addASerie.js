@@ -47,7 +47,7 @@ export async function addASerie(name, season = 1) {
     const searchResult = await searchQ.text();
     const allResults = (Array.from(searchResult.matchAll(/<a href="\?p=serie(?:&amp;|&)id=([^"]*)"/g))).map(e => e[1]);
     console.log(JSON.stringify({ allResults }, null, 2));
-    if (!first10Result || !first10Result.length)
+    if (!allResults || !allResults.length)
         return { ok: false, error: 'not found' };
 
     const serieQ = await fetch(`https://${ztdomain}/?p=serie&id=${allResults[0]}`);
