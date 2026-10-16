@@ -114,10 +114,10 @@ export async function addASerie(name, season = 1) {
         return { ok: false, error: 'not found' };
 
     console.log({ allDownloadLinks });
-    
+
     allDownloadLinks = allDownloadLinks.reduce((acc, item) => ({
       ...acc,
-      [item[0]]: [ ...(acc?.[item[0]] || []), item[1] ]
+      [item[1]]: [ ...(acc?.[item[0]] || []), item[0] ]
     }), ({ }));
 
     console.log({ allDownloadLinks });
