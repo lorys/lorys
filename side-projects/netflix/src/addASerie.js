@@ -113,10 +113,14 @@ export async function addASerie(name, season = 1) {
     if (!allDownloadLinks.length)
         return { ok: false, error: 'not found' };
 
+    console.log({ allDownloadLinks });
+    
     allDownloadLinks = allDownloadLinks.reduce((acc, item) => ({
       ...acc,
       [item[0]]: [ ...(acc?.[item[0]] || []), item[1] ]
     }), ({ }));
+
+    console.log({ allDownloadLinks });
 
     if (currentPageSeason === season) {
       const imgUrlRaw = Array.from(serieData.matchAll(/<center>[^<]{0,}<img src="([^"]{0,})" alt="/g));
