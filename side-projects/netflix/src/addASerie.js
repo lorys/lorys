@@ -83,7 +83,7 @@ export async function addASerie(name, season = 1) {
     const nitroflare = /(?<=<div style="font-weight:bold;color:#5390a8">Nitroflare<\/div>(?:(?!<br\s*\/>)[\s\S])*?)<a\b[^>]*\bhref="(?<href>[^"]*)"[^>]*>(?<texte>[^<]*)<\/a>/g;
     const turbobit = /(?<=<div style="font-weight:bold;color:#f47445">Turbobit<\/div>(?:(?!<br\s*\/>)[\s\S])*?)<a\b[^>]*\bhref="(?<href>[^"]*)"[^>]*>(?<texte>[^<]*)<\/a>/g;
 
-    let foundSeason = allWantedSeasons.find(e => e[1].indexOf(`Saison ${season}`));
+    let foundSeason = allWantedSeasons.find(e => e[1].indexOf(`Saison ${season}`) > -1);
     if (foundSeason) {
       const wantedSeasonQ = await fetch(`https://${ztdomain}/${foundSeason[0]}`);
       const wantedSeasonData = await wantedSeasonQ.text();
