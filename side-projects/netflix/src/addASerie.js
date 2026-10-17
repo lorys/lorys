@@ -102,7 +102,7 @@ export async function addASerie(name, season = 1) {
         ...(Array.from(wantedSeasonData.matchAll(nitroflare)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
         ...(Array.from(wantedSeasonData.matchAll(turbobit)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
       ];
-    } else if (currentPageSeason === season && currentPageQuality.indexOf('VOSTFR')) {
+    } else if (currentPageSeason === season && currentPageQuality.indexOf('VOSTFR') > -1) {
       allDownloadLinks = [
         ...(Array.from(serieData.matchAll(rapidgator)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
         ...(Array.from(serieData.matchAll(uploady)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
@@ -112,7 +112,7 @@ export async function addASerie(name, season = 1) {
       ];
     }
 
-    let foundRightQuality = currentPageAvailableQualities.find(e => e[1].indexOf('VOSTFR'));
+    let foundRightQuality = currentPageAvailableQualities.find(e => e[1].indexOf('VOSTFR') > -1);
     if (!allDownloadLinks.length && currentPageSeason === season && foundRightQuality) {
       const wantedQualityQ = await fetch(`https://${ztdomain}/${foundRightQuality[0]}`);
       const wantedQualityData = await wantedQualityQ.text();
