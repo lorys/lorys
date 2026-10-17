@@ -46,7 +46,7 @@ export async function addAMovie(name) {
     const searchQ = await fetch(`https://${ztdomain}/?p=films&search=${name}`);
     const searchResult = await searchQ.text();
     const allResults = (Array.from(searchResult.matchAll(/<a href="\?p=film(?:&amp;|&)id=([^"]*)"/g))).map(e => e[1]);
-    const first10Result = allResults?.slice(0,10);
+    const first10Result = allResults;
 
     console.log({ first10Result });
 
