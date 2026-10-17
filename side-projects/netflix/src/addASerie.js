@@ -104,11 +104,11 @@ export async function addASerie(name, season = 1) {
       ];
     } else if (currentPageSeason === season && currentPageQuality.indexOf('VOSTFR')) {
       allDownloadLinks = [
-        ...(Array.from(wantedSeasonData.matchAll(rapidgator)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
-        ...(Array.from(wantedSeasonData.matchAll(uploady)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
-        ...(Array.from(wantedSeasonData.matchAll(dailyuploads)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
-        ...(Array.from(wantedSeasonData.matchAll(nitroflare)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
-        ...(Array.from(wantedSeasonData.matchAll(turbobit)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()]))
+        ...(Array.from(serieData.matchAll(rapidgator)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(serieData.matchAll(uploady)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(serieData.matchAll(dailyuploads)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(serieData.matchAll(nitroflare)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(serieData.matchAll(turbobit)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()]))
       ];
     }
 
@@ -117,11 +117,11 @@ export async function addASerie(name, season = 1) {
       const wantedQualityQ = await fetch(`https://${ztdomain}/${foundRightQuality[0]}`);
       const wantedQualityData = await wantedQualityQ.text();
       allDownloadLinks = [
-        ...(Array.from(wantedSeasonData.matchAll(rapidgator)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
-        ...(Array.from(wantedSeasonData.matchAll(uploady)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
-        ...(Array.from(wantedSeasonData.matchAll(dailyuploads)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
-        ...(Array.from(wantedSeasonData.matchAll(nitroflare)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
-        ...(Array.from(wantedSeasonData.matchAll(turbobit)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()]))
+        ...(Array.from(wantedQualityData.matchAll(rapidgator)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(wantedQualityData.matchAll(uploady)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(wantedQualityData.matchAll(dailyuploads)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(wantedQualityData.matchAll(nitroflare)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(wantedQualityData.matchAll(turbobit)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()]))
       ];
     }
 
@@ -132,7 +132,7 @@ export async function addASerie(name, season = 1) {
 
     allDownloadLinks = allDownloadLinks.reduce((acc, item) => ({
       ...acc,
-      [item[1]]: [ ...(acc?.[item[0]] || []), item[0] ]
+      [item[1]]: [ ...(acc?.[item[1]] || []), item[0] ]
     }), ({ }));
 
     console.log({ allDownloadLinks });
