@@ -77,6 +77,12 @@ export async function addASerie(name, season = 1) {
 
     let allDownloadLinks = [];
 
+    const rapidgator = /(?<=<div style="font-weight:bold;color:#fbaf4e">Rapidgator<\/div>(?:(?!<br\s*\/>)[\s\S])*?)<a\b[^>]*\bhref="(?<href>[^"]*)"[^>]*>(?<texte>[^<]*)<\/a>/g;
+    const uploady = /(?<=<div style="font-weight:bold;color:#c2107b">Uploady<\/div>(?:(?!<br\s*\/>)[\s\S])*?)<a\b[^>]*\bhref="(?<href>[^"]*)"[^>]*>(?<texte>[^<]*)<\/a>/g;
+    const dailyuploads = /(?<=<div style="font-weight:bold;color:#c442b5">DailyUploads<\/div>(?:(?!<br\s*\/>)[\s\S])*?)<a\b[^>]*\bhref="(?<href>[^"]*)"[^>]*>(?<texte>[^<]*)<\/a>/g;
+    const nitroflare = /(?<=<div style="font-weight:bold;color:#5390a8">Nitroflare<\/div>(?:(?!<br\s*\/>)[\s\S])*?)<a\b[^>]*\bhref="(?<href>[^"]*)"[^>]*>(?<texte>[^<]*)<\/a>/g;
+    const turbobit = /(?<=<div style="font-weight:bold;color:#f47445">Turbobit<\/div>(?:(?!<br\s*\/>)[\s\S])*?)<a\b[^>]*\bhref="(?<href>[^"]*)"[^>]*>(?<texte>[^<]*)<\/a>/g;
+
     let foundSeason = allWantedSeasons.find(e => e[1].indexOf(`Saison ${season}`));
     if (foundSeason) {
       const wantedSeasonQ = await fetch(`https://${ztdomain}/${foundSeason[0]}`);
@@ -90,13 +96,19 @@ export async function addASerie(name, season = 1) {
       imgUrl = `data:${mime};base64,${buffer.toString("base64")}`;
 
       allDownloadLinks = [
-        ...(Array.from(wantedSeasonData.matchAll(/(?<=Rapidgator(?:(?!<br\s*\/>)[\s\S])*?)<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
-        ...(Array.from(wantedSeasonData.matchAll(/(?<=Nitroflare(?:(?!<br\s*\/>)[\s\S])*?)<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()]))
+        ...(Array.from(wantedSeasonData.matchAll(rapidgator)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(wantedSeasonData.matchAll(uploady)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(wantedSeasonData.matchAll(dailyuploads)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(wantedSeasonData.matchAll(nitroflare)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(wantedSeasonData.matchAll(turbobit)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
       ];
     } else if (currentPageSeason === season && currentPageQuality.indexOf('VOSTFR')) {
       allDownloadLinks = [
-        ...(Array.from(wantedSeasonData.matchAll(/(?<=Rapidgator(?:(?!<br\s*\/>)[\s\S])*?)<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
-        ...(Array.from(wantedSeasonData.matchAll(/(?<=Nitroflare(?:(?!<br\s*\/>)[\s\S])*?)<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()]))
+        ...(Array.from(wantedSeasonData.matchAll(rapidgator)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(wantedSeasonData.matchAll(uploady)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(wantedSeasonData.matchAll(dailyuploads)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(wantedSeasonData.matchAll(nitroflare)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(wantedSeasonData.matchAll(turbobit)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()]))
       ];
     }
 
@@ -105,8 +117,11 @@ export async function addASerie(name, season = 1) {
       const wantedQualityQ = await fetch(`https://${ztdomain}/${foundRightQuality[0]}`);
       const wantedQualityData = await wantedQualityQ.text();
       allDownloadLinks = [
-        ...(Array.from(wantedQualityData.matchAll(/(?<=Rapidgator(?:(?!<br\s*\/>)[\s\S])*?)<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
-        ...(Array.from(wantedQualityData.matchAll(/(?<=Nitroflare(?:(?!<br\s*\/>)[\s\S])*?)<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()]))
+        ...(Array.from(wantedSeasonData.matchAll(rapidgator)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(wantedSeasonData.matchAll(uploady)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(wantedSeasonData.matchAll(dailyuploads)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(wantedSeasonData.matchAll(nitroflare)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
+        ...(Array.from(wantedSeasonData.matchAll(turbobit)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()]))
       ];
     }
 
