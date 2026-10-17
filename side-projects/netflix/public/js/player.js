@@ -65,28 +65,38 @@ export function createPlayer({ onBack }) {
     idleTimer = setTimeout(hideChrome, IDLE_MS);
   }
 
+  // Last pointer used: a finger leaves :hover stuck on whatever it tapped, so only a mouse counts.
+  let usingMouse = true;
+
   function hideChrome() {
-    if (video.paused || scrubbing || openMenus().length || root.querySelector('.player__bottom:hover')) {
+    const hovered = usingMouse && root.querySelector('.player__bottom:hover');
+    if (video.paused || scrubbing || openMenus().length || hovered) {
       idleTimer = setTimeout(hideChrome, IDLE_MS);
       return;
     }
     root.classList.remove('player--active');
   }
 
+  root.addEventListener('pointerdown', (event) => {
+    usingMouse = event.pointerType === 'mouse';
+  });
   root.addEventListener('pointermove', (event) => {
     if (event.pointerType === 'mouse') showChrome();
   });
-  root.addEventListener('pointerleave', () => {
-    if (!video.paused) root.classList.remove('player--active');
+  // Touch pointers "leave" at the end of every tap, so only a mouse leaving hides the controls.
+  root.addEventListener('pointerleave', (event) => {
+    if (event.pointerType === 'mouse' && !video.paused) root.classList.remove('player--active');
   });
 
-  // Click the picture: toggle play on desktop; on touch, the first tap only reveals the controls.
-  // Double-tap on the left/right third seeks, like the Netflix apps.
+  // Mouse: clicking the picture toggles play. Touch: a tap anywhere outside the controls shows or
+  // hides them, and a double-tap on the left/right third seeks, like the Netflix apps.
   let lastTap = 0;
   let closedMenuOnPress = false;
-  video.addEventListener('pointerup', (event) => {
-    if (closedMenuOnPress) return;
+  const INTERACTIVE = 'button, input, .scrubber, .popover';
+  root.addEventListener('pointerup', (event) => {
+    if (closedMenuOnPress || event.target.closest(INTERACTIVE) || !$('player-error').hidden) return;
     if (event.pointerType === 'mouse') {
+      if (event.target !== video || event.button !== 0) return;
       togglePlay();
       flash(video.paused ? 'pause' : 'play');
       return;
@@ -99,12 +109,16 @@ export function createPlayer({ onBack }) {
       return;
     }
     lastTap = now;
-    if (root.classList.contains('player--active')) togglePlay();
-    showChrome();
+    if (root.classList.contains('player--active') && !video.paused) {
+      clearTimeout(idleTimer);
+      root.classList.remove('player--active');
+    } else {
+      showChrome();
+    }
   });
   video.addEventListener('dblclick', (event) => {
     event.preventDefault();
-    toggleFullscreen();
+    if (usingMouse) toggleFullscreen();
   });
 
   // ---------- Feedback ----------
@@ -144,21 +158,28 @@ export function createPlayer({ onBack }) {
     showChrome();
   }
 
-  playBtn.addEventListener('click', togglePlay);
-  $('pbtn-rewind').addEventListener('click', () => seekBy(-SEEK_STEP));
-  $('pbtn-forward').addEventListener('click', () => seekBy(SEEK_STEP));
+  const playBtns = [playBtn, $('pbtn-play-center')];
+  for (const button of playBtns) button.addEventListener('click', togglePlay);
+  for (const button of root.querySelectorAll('[data-seek]')) {
+    button.addEventListener('click', () => seekBy(Number(button.dataset.seek)));
+  }
+
+  function renderPlayState(playing) {
+    for (const button of playBtns) {
+      setIcon(button, playing ? 'pause' : 'play');
+      button.setAttribute('aria-label', playing ? 'Pause' : 'Lecture');
+    }
+  }
 
   video.addEventListener('play', () => {
-    setIcon(playBtn, 'pause');
-    playBtn.setAttribute('aria-label', 'Pause');
+    renderPlayState(true);
     root.classList.remove('player--paused', 'player--show-info');
     clearTimeout(pausedInfoTimer);
     showChrome();
   });
   video.addEventListener('pause', () => {
     if (!movie) return;
-    setIcon(playBtn, 'play');
-    playBtn.setAttribute('aria-label', 'Lecture');
+    renderPlayState(false);
     root.classList.add('player--paused', 'player--active');
     clearTimeout(pausedInfoTimer);
     // Left paused for a while: dim the picture and remind what is playing.

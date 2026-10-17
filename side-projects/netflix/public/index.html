@@ -44,9 +44,14 @@
       <section id="rows" class="rows"></section>
 
       <section id="search-results" class="search-results" hidden>
-        <h2 id="search-title"></h2>
+        <div class="search-results__header">
+          <h2 id="search-title"></h2>
+          <button id="add-movie-btn" class="btn btn--primary btn--add" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z" /></svg>
+            Ajouter un film ou une série
+          </button>
+        </div>
         <div id="search-grid" class="grid"></div>
-        <button id="add-movie-btn" class="btn btn--primary" hidden>Ajouter un film ou une série</button>
       </section>
 
       <p id="empty" class="empty" hidden></p>
@@ -183,6 +188,13 @@
           <button class="pbtn" data-player-back aria-label="Retour au catalogue" title="Retour"><svg><use href="#i-back" /></svg></button>
         </div>
 
+        <!-- Touch screens: big centered controls, like the Netflix mobile apps. -->
+        <div class="player__center">
+          <button class="pbtn pbtn--center" data-seek="-10" aria-label="Reculer de 10 secondes"><svg><use href="#i-rewind" /></svg></button>
+          <button class="pbtn pbtn--center pbtn--center-play" id="pbtn-play-center" aria-label="Lecture"><svg><use href="#i-play" /></svg></button>
+          <button class="pbtn pbtn--center" data-seek="10" aria-label="Avancer de 10 secondes"><svg><use href="#i-forward" /></svg></button>
+        </div>
+
         <div class="player__bottom">
           <div class="scrubber-row">
             <div class="scrubber" id="scrubber" role="slider" tabindex="-1" aria-label="Position de lecture" aria-valuemin="0">
@@ -198,9 +210,9 @@
 
           <div class="player__controls">
             <div class="player__group">
-              <button class="pbtn" id="pbtn-play" aria-label="Lecture" title="Lecture (Espace)"><svg><use href="#i-play" /></svg></button>
-              <button class="pbtn" id="pbtn-rewind" aria-label="Reculer de 10 secondes" title="Reculer de 10 s (←)"><svg><use href="#i-rewind" /></svg></button>
-              <button class="pbtn" id="pbtn-forward" aria-label="Avancer de 10 secondes" title="Avancer de 10 s (→)"><svg><use href="#i-forward" /></svg></button>
+              <button class="pbtn pbtn--desktop" id="pbtn-play" aria-label="Lecture" title="Lecture (Espace)"><svg><use href="#i-play" /></svg></button>
+              <button class="pbtn pbtn--desktop" data-seek="-10" aria-label="Reculer de 10 secondes" title="Reculer de 10 s (←)"><svg><use href="#i-rewind" /></svg></button>
+              <button class="pbtn pbtn--desktop" data-seek="10" aria-label="Avancer de 10 secondes" title="Avancer de 10 s (→)"><svg><use href="#i-forward" /></svg></button>
               <div class="popover-anchor popover-anchor--hover" id="volume-anchor">
                 <button class="pbtn" id="pbtn-mute" aria-label="Couper le son" title="Son (M)"><svg><use href="#i-volume-high" /></svg></button>
                 <div class="popover popover--volume">

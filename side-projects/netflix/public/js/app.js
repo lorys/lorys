@@ -325,6 +325,7 @@ function renderHero() {
 
 function renderRows() {
   const rows = $('rows');
+  rowResizeObserver.disconnect();
   rows.replaceChildren();
   for (const category of buildCategories()) {
     const row = document.createElement('div');
@@ -334,9 +335,45 @@ function renderRows() {
     const track = document.createElement('div');
     track.className = 'row__track';
     track.append(...category.movies.map((m) => createCard(m)));
-    row.append(title, track);
+    const viewport = document.createElement('div');
+    viewport.className = 'row__viewport';
+    viewport.append(track, rowArrow(track, -1), rowArrow(track, 1));
+    row.append(title, viewport);
     rows.append(row);
+    watchRowOverflow(track);
   }
+}
+
+// Mouse users get no scrollbar, so each row that overflows gets Netflix-style side arrows
+// (hidden on touch screens by CSS, where swiping does the job).
+function rowArrow(track, direction) {
+  const button = document.createElement('button');
+  button.className = `row__arrow row__arrow--${direction < 0 ? 'prev' : 'next'}`;
+  button.setAttribute('aria-label', direction < 0 ? 'Précédent' : 'Suivant');
+  button.tabIndex = -1;
+  button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${direction < 0 ? 'M15.4 4.6 8 12l7.4 7.4 1.4-1.4-6-6 6-6z' : 'M8.6 4.6 16 12l-7.4 7.4-1.4-1.4 6-6-6-6z'}" /></svg>`;
+  button.addEventListener('click', () => {
+    // A page minus one card, so the last visible card stays as a landmark.
+    const card = track.querySelector('.card')?.offsetWidth ?? 0;
+    track.scrollBy({ left: direction * Math.max(card, track.clientWidth - card * 1.5), behavior: 'smooth' });
+  });
+  return button;
+}
+
+const rowResizeObserver = new ResizeObserver((entries) => {
+  for (const entry of entries) updateRowArrows(entry.target);
+});
+
+function updateRowArrows(track) {
+  const viewport = track.parentElement;
+  const max = track.scrollWidth - track.clientWidth;
+  viewport.classList.toggle('row__viewport--can-prev', track.scrollLeft > 2);
+  viewport.classList.toggle('row__viewport--can-next', track.scrollLeft < max - 2);
+}
+
+function watchRowOverflow(track) {
+  track.addEventListener('scroll', () => updateRowArrows(track), { passive: true });
+  rowResizeObserver.observe(track);
 }
 
 function renderHome() {
@@ -372,7 +409,7 @@ function renderSearch(query) {
     ? `Résultats pour « ${query.trim()} »`
     : `Aucun résultat pour « ${query.trim()} »`;
   $('search-grid').replaceChildren(...results.map((m) => createCard(m)));
-  $('add-movie-btn').hidden = results.length > 0;
+  $('add-movie-btn').hidden = false;
 }
 
 $('add-movie-btn').addEventListener('click', () => openAddMovie($('search-input').value.trim()));
