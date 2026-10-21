@@ -14,6 +14,8 @@ let shows = {};
 let progress = {};
 // movieId → date it was last watched to the end.
 let watched = {};
+// The ADMIN account may fix TMDB matches and delete movies and series.
+let admin = false;
 
 // ---------- API ----------
 
@@ -35,7 +37,8 @@ function showLogin() {
   $('login-form').username.focus();
 }
 
-async function showBrowse(username) {
+async function showBrowse(username, isAdmin = false) {
+  admin = isAdmin;
   $('login-view').hidden = true;
   $('browse-view').hidden = false;
   $('username').textContent = username;
@@ -125,12 +128,12 @@ $('login-form').addEventListener('submit', async (event) => {
   const form = event.currentTarget;
   $('login-error').hidden = true;
   try {
-    const { username } = await api('/api/login', {
+    const { username, admin: isAdmin } = await api('/api/login', {
       method: 'POST',
       body: JSON.stringify({ username: form.username.value, password: form.password.value }),
     });
     form.reset();
-    await showBrowse(username);
+    await showBrowse(username, isAdmin);
   } catch (err) {
     $('login-error').textContent = err.message;
     $('login-error').hidden = false;
@@ -143,6 +146,7 @@ $('logout-btn').addEventListener('click', async () => {
   shows = {};
   progress = {};
   watched = {};
+  admin = false;
   clearTimeout(conversionsTimer);
   clearTimeout(watchingTimer);
   showLogin();
@@ -434,6 +438,7 @@ let modalSeason = null;
 function openModal(item) {
   if (isShow(item)) openShowModal(item);
   else openMovieModal(item);
+  renderModalTools(item);
   $('modal').hidden = false;
   document.body.classList.add('no-scroll');
 }
@@ -600,6 +605,78 @@ $('modal-play').addEventListener('click', () => {
 $('modal-restart').addEventListener('click', () => {
   closeModal();
   playMovie(modalMovie, { restart: true });
+});
+
+// ---------- Fixing the TMDB match, deleting (admin) ----------
+
+/** Reloads the library after it changed on the server, keeping the search the user typed. */
+async function reloadCatalogue() {
+  ({ movies, shows } = await api('/api/movies'));
+  renderSearch($('search-input').value);
+}
+
+function renderModalTools(item) {
+  const show = isShow(item);
+  const rematch = $('modal-rematch');
+  rematch.hidden = !admin;
+  rematch.open = !item.matched;
+  rematch.classList.toggle('rematch--unmatched', !item.matched);
+  $('modal-rematch-summary').textContent = item.matched
+    ? 'Mauvais titre ? Corriger la recherche TMDB'
+    : `TMDB n'a pas trouvé ${show ? 'cette série' : 'ce film'} : tapez son nom exact`;
+  $('modal-rematch-name').value = item.searchName ?? item.title;
+  $('modal-rematch-name').placeholder = show ? 'Nom exact de la série' : 'Nom exact du film';
+  $('modal-rematch-send').disabled = false;
+  $('modal-rematch-status').hidden = true;
+
+  $('modal-admin').hidden = !admin;
+  $('modal-delete').textContent = show ? 'Supprimer la série' : 'Supprimer le film';
+  $('modal-delete').disabled = false;
+  $('modal-delete-status').hidden = true;
+}
+
+const itemUrl = (item) => (isShow(item) ? `/api/shows/${encodeURIComponent(item.key)}` : `/api/movies/${item.id}`);
+
+$('modal-rematch-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const item = modalMovie;
+  const name = $('modal-rematch-name').value.trim();
+  if (!name) return;
+  const status = $('modal-rematch-status');
+  status.textContent = 'Recherche sur TMDB…';
+  status.classList.remove('add-movie__status--error');
+  status.hidden = false;
+  $('modal-rematch-send').disabled = true;
+  try {
+    await api(`${itemUrl(item)}/match`, { method: 'POST', body: JSON.stringify({ name }) });
+    await reloadCatalogue();
+    // Show the new title, poster and summary, unless the user moved on meanwhile.
+    if ($('modal').hidden || modalMovie?.id !== item.id) return;
+    const updated = isShow(item) ? libraryShows().find((s) => s.id === item.id) : movies.find((m) => m.id === item.id);
+    if (updated) openModal(updated);
+  } catch (err) {
+    status.textContent = err.message;
+    status.classList.add('add-movie__status--error');
+    $('modal-rematch-send').disabled = false;
+  }
+});
+
+$('modal-delete').addEventListener('click', async () => {
+  const item = modalMovie;
+  const what = isShow(item)
+    ? `la série « ${item.title} » (${item.episodes.length} épisode${item.episodes.length > 1 ? 's' : ''})`
+    : `le film « ${item.title} »`;
+  if (!confirm(`Supprimer définitivement ${what} du disque ?`)) return;
+  $('modal-delete').disabled = true;
+  try {
+    await api(itemUrl(item), { method: 'DELETE' });
+    if (modalMovie?.id === item.id) closeModal();
+    await reloadCatalogue();
+  } catch (err) {
+    $('modal-delete-status').textContent = err.message;
+    $('modal-delete-status').hidden = false;
+    $('modal-delete').disabled = false;
+  }
 });
 
 // ---------- Conversions ----------
@@ -1109,8 +1186,8 @@ document.addEventListener('keydown', (event) => {
 // ---------- Boot ----------
 
 try {
-  const { username } = await api('/api/me');
-  await showBrowse(username);
+  const { username, admin: isAdmin } = await api('/api/me');
+  await showBrowse(username, isAdmin);
 } catch (err) {
   if (err.status === 401) showLogin();
   else throw err;

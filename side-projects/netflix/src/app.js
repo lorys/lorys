@@ -8,7 +8,7 @@ import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import { authenticate, createAccountsStore } from './accounts.js';
 import { createSessionToken, readSessionToken, SESSION_COOKIE, SESSION_TTL_MS } from './session.js';
-import { readMoviesInfos } from './scanner.js';
+import { deleteLibraryItems, readMoviesInfos, rematchMovie, rematchShow } from './scanner.js';
 import { createConversionManager } from './conversions.js';
 import { createDownloadManager, diskUsage, DownloadRefusedError } from './downloads.js';
 import { createSubtitlesService } from './subtitles.js';
@@ -92,7 +92,7 @@ export function parseRange(header, size) {
   return { start, end };
 }
 
-export function buildApp(config, { logger = true, conversions, loginIntervalMs = LOGIN_INTERVAL_MS } = {}) {
+export function buildApp(config, { logger = true, conversions, tmdb, loginIntervalMs = LOGIN_INTERVAL_MS } = {}) {
   const app = Fastify({ logger });
   const getInfos = createInfosCache(config.moviesInfosPath);
   const accounts = createAccountsStore(config.accountsPath, config.accountsSecret);
@@ -125,6 +125,14 @@ export function buildApp(config, { logger = true, conversions, loginIntervalMs =
     request.user = account.username;
   };
 
+  const isAdmin = (username) => Boolean(config.admin) && username === config.admin;
+
+  const requireAdmin = async (request, reply) => {
+    await requireUser(request, reply);
+    if (reply.sent) return;
+    if (!isAdmin(request.user)) return reply.code(403).send({ error: 'Réservé à l’administrateur' });
+  };
+
   let lastLoginAt = -Infinity;
 
   app.post('/api/login', {
@@ -154,7 +162,7 @@ export function buildApp(config, { logger = true, conversions, loginIntervalMs =
         secure: true,
         maxAge: SESSION_TTL_MS / 1000,
       });
-      return { username: user.username };
+      return { username: user.username, admin: isAdmin(user.username) };
     },
   });
 
@@ -171,7 +179,7 @@ export function buildApp(config, { logger = true, conversions, loginIntervalMs =
     return { ok: true };
   });
 
-  app.get('/api/me', { preHandler: requireUser }, async (request) => ({ username: request.user }));
+  app.get('/api/me', { preHandler: requireUser }, async (request) => ({ username: request.user, admin: isAdmin(request.user) }));
 
   app.get('/api/movies', { preHandler: requireUser }, async () => {
     const { updatedAt, movies, shows } = await getInfos();
@@ -517,6 +525,58 @@ export function buildApp(config, { logger = true, conversions, loginIntervalMs =
       request.log.error(err, 'subtitle extraction failed');
       return reply.code(500).send({ error: 'Impossible de lire ces sous-titres' });
     }
+  });
+
+  // ---------- Fixing the TMDB match by name and deleting (admin only) ----------
+
+  const matchBody = {
+    type: 'object',
+    required: ['name'],
+    properties: { name: { type: 'string', minLength: 1, maxLength: 300 } },
+  };
+
+  const rematch = async (request, reply, lookUp, missingError) => {
+    const name = request.body.name.trim();
+    if (!name) return reply.code(400).send({ error: 'Indiquez le nom exact' });
+    let result;
+    try {
+      result = await lookUp(name);
+    } catch (err) {
+      request.log.error(err, 'TMDB rematch failed');
+      return reply.code(502).send({ error: 'La recherche sur TMDB a échoué' });
+    }
+    if (result.missing) return reply.code(404).send({ error: missingError });
+    if (result.noMatch) return reply.code(404).send({ error: `TMDB ne trouve rien pour « ${name} »` });
+    const { parsed, size, ...item } = result.item;
+    return item;
+  };
+
+  app.post('/api/movies/:id/match', { preHandler: requireAdmin, schema: { body: matchBody } }, async (request, reply) =>
+    rematch(request, reply, (name) => rematchMovie(config, request.params.id, name, { tmdb, logger: request.log }), 'Film introuvable'),
+  );
+
+  app.post('/api/shows/:key/match', { preHandler: requireAdmin, schema: { body: matchBody } }, async (request, reply) =>
+    rematch(request, reply, (name) => rematchShow(config, request.params.key, name, { tmdb, logger: request.log }), 'Série introuvable'),
+  );
+
+  // Removes the files from MOVIES_PATH for good, not only from the catalogue.
+  const deleteItems = async (request, reply, items) => {
+    if (items.some((m) => conversions.isBusy(m.id))) return reply.code(409).send({ error: 'Conversion en cours, réessayez plus tard' });
+    const deleted = await deleteLibraryItems(config, items.map((m) => m.id));
+    request.log.info({ user: request.user, files: deleted.map((m) => m.file) }, 'Deleted from the library');
+    return { deleted: deleted.length };
+  };
+
+  app.delete('/api/movies/:id', { preHandler: requireAdmin }, async (request, reply) => {
+    const movie = (await getInfos()).movies.find((m) => m.id === request.params.id && m.kind !== 'episode');
+    if (!movie) return reply.code(404).send({ error: 'Film introuvable' });
+    return deleteItems(request, reply, [movie]);
+  });
+
+  app.delete('/api/shows/:key', { preHandler: requireAdmin }, async (request, reply) => {
+    const episodes = (await getInfos()).movies.filter((m) => m.kind === 'episode' && m.showKey === request.params.key);
+    if (!episodes.length) return reply.code(404).send({ error: 'Série introuvable' });
+    return deleteItems(request, reply, episodes);
   });
 
   app.get('/api/movies/:id/stream', { preHandler: requireUser }, async (request, reply) => {

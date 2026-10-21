@@ -91,6 +91,15 @@
           </div>
           <dl class="modal__credits" id="modal-credits"></dl>
         </div>
+        <!-- Admin only. Open when TMDB found nothing; folded away otherwise, to fix a wrong match. -->
+        <details class="rematch" id="modal-rematch" hidden>
+          <summary id="modal-rematch-summary"></summary>
+          <form class="download__form rematch__form" id="modal-rematch-form">
+            <input class="download__url" name="name" id="modal-rematch-name" autocomplete="off" maxlength="300" required />
+            <button type="submit" class="btn btn--primary" id="modal-rematch-send">Rechercher</button>
+          </form>
+          <p class="add-movie__status" id="modal-rematch-status" role="status" hidden></p>
+        </details>
         <section class="episodes" id="modal-episodes" hidden>
           <div class="episodes__header">
             <h3>Épisodes</h3>
@@ -98,6 +107,10 @@
           </div>
           <ol class="episodes__list" id="modal-episode-list"></ol>
         </section>
+        <div class="modal__admin" id="modal-admin" hidden>
+          <button class="btn btn--danger" id="modal-delete"></button>
+          <p class="add-movie__status add-movie__status--error" id="modal-delete-status" role="status" hidden></p>
+        </div>
       </article>
     </div>
 

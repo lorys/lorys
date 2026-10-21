@@ -11,6 +11,8 @@ export function loadConfig(env = process.env) {
     accountsPath: path.resolve(required('ACCOUNTS_PATH')),
     accountsSecret: required('ACCOUNTS_SECRET'),
     tmdbApiKey: env.THEMOVIEDB_API_KEY || '',
+    // Username of the account allowed to delete movies and series from the library.
+    admin: env.ADMIN || '',
     sessionSecret: env.SESSION_SECRET || required('ACCOUNTS_SECRET'),
     host: env.HOST || '0.0.0.0',
     port: Number(env.PORT || 3000),

@@ -47,6 +47,8 @@ button { font: inherit; cursor: pointer; }
 .btn--secondary:hover { background: rgba(109, 109, 110, 0.4); }
 .btn--ghost { background: transparent; color: var(--fg); padding: 0.4rem 0.6rem; font-size: 0.9rem; }
 .btn--ghost:hover { color: white; text-decoration: underline; }
+.btn--danger { background: transparent; color: #e87c03; border: 1px solid currentColor; }
+.btn--danger:hover:not(:disabled) { background: #e87c03; color: black; }
 
 /* ---------- Login ---------- */
 
@@ -407,6 +409,19 @@ button { font: inherit; cursor: pointer; }
 .modal__credits { margin: 0; font-size: 0.9rem; }
 .modal__credits dt { color: var(--muted); }
 .modal__credits dd { margin: 0 0 0.8rem; word-break: break-word; }
+
+/* Fix the TMDB match by typing the exact title */
+.rematch { padding: 0 3rem 2rem; }
+.rematch summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; width: fit-content; }
+.rematch summary:hover { color: var(--fg); }
+.rematch[open] summary { margin-bottom: 0.8rem; }
+.rematch--unmatched summary { color: #e87c03; font-weight: 600; }
+.rematch__form { max-width: 560px; }
+.modal__admin { padding: 0 3rem 3rem; }
+.modal__admin .add-movie__status { margin-top: 0.6rem; }
+@media (max-width: 700px) {
+  .rematch, .modal__admin { padding-left: 1.5rem; padding-right: 1.5rem; }
+}
 
 /* Show modal: season picker and episode list */
 .episodes { padding: 0 3rem 3rem; }

@@ -197,6 +197,93 @@ function toEpisodeInfo(base, show) {
   };
 }
 
+/** Seasons of a TMDB show, fetched for the episodes we have. A season that fails is left out (looked up again next scan). */
+async function fetchSeasons(client, show, seasons, logger) {
+  for (const season of seasons) {
+    try {
+      show.seasons[season] = toSeasonInfo(await client.seasonDetails(show.tmdbId, season));
+    } catch (err) {
+      logger.error?.(`TMDB lookup failed for "${show.title}" season ${season}: ${err.message}`);
+    }
+  }
+}
+
+/**
+ * Looks a movie up again on TMDB under `name`, typed by a user when the filename gave no match or the
+ * wrong one. The name is kept, so later scans search it too. Returns `{ item }`, `{ missing: true }`
+ * when no movie has this id, or `{ noMatch: true }` when TMDB finds nothing.
+ */
+export async function rematchMovie(config, id, name, { tmdb, logger = console } = {}) {
+  if (!(await readMoviesInfos(config.moviesInfosPath)).movies.some((m) => m.id === id && m.kind !== 'episode')) return { missing: true };
+  const client = tmdb ?? createTmdbClient(config.tmdbApiKey);
+  const hit = await client.searchMovie(name);
+  if (!hit) return { noMatch: true };
+  const details = await client.movieDetails(hit.id);
+  return runExclusive(async () => {
+    // Read again: a scan or a conversion may have rewritten the file meanwhile.
+    const infos = await readMoviesInfos(config.moviesInfosPath);
+    const index = infos.movies.findIndex((m) => m.id === id && m.kind !== 'episode');
+    if (index === -1) return { missing: true };
+    const movie = infos.movies[index];
+    const item = { ...toMovieInfo({ ...movie, parsed: movie.parsed ?? parseMovieFilename(movie.file) }, details), searchName: name };
+    infos.movies[index] = item;
+    await writeMoviesInfos(config.moviesInfosPath, infos);
+    logger.info?.(`"${movie.file}" matched by name "${name}" to "${item.title}"`);
+    return { item };
+  });
+}
+
+/** Same as rematchMovie for a whole show: the show and all its episodes get the new TMDB data. */
+export async function rematchShow(config, key, name, { tmdb, logger = console } = {}) {
+  const before = await readMoviesInfos(config.moviesInfosPath);
+  if (!before.shows[key]) return { missing: true };
+  const client = tmdb ?? createTmdbClient(config.tmdbApiKey);
+  const hit = await client.searchTv(name);
+  if (!hit) return { noMatch: true };
+  const show = { ...toShowInfo(key, await client.tvDetails(hit.id)), searchName: name };
+  const seasons = [...new Set(before.movies.filter((m) => m.showKey === key).map((m) => m.season))].sort((a, b) => a - b);
+  await fetchSeasons(client, show, seasons, logger);
+  return runExclusive(async () => {
+    const infos = await readMoviesInfos(config.moviesInfosPath);
+    if (!infos.shows[key]) return { missing: true };
+    infos.shows[key] = show;
+    infos.movies = infos.movies.map((m) => (m.kind === 'episode' && m.showKey === key ? toEpisodeInfo(m, show) : m));
+    await writeMoviesInfos(config.moviesInfosPath, infos);
+    logger.info?.(`Show "${key}" matched by name "${name}" to "${show.title}"`);
+    return { item: show };
+  });
+}
+
+/**
+ * Deletes the files of the given library entries from MOVIES_PATH (and folders left empty), then
+ * their entries, and shows left without episodes. Returns the deleted entries.
+ */
+export async function deleteLibraryItems(config, ids) {
+  const wanted = new Set(ids);
+  return runExclusive(async () => {
+    const infos = await readMoviesInfos(config.moviesInfosPath);
+    const deleted = infos.movies.filter((m) => wanted.has(m.id));
+    for (const movie of deleted) {
+      const filePath = path.resolve(config.moviesPath, movie.file);
+      if (!filePath.startsWith(config.moviesPath + path.sep)) continue;
+      await fs.rm(filePath, { force: true });
+      for (let folder = path.dirname(filePath); folder.startsWith(config.moviesPath + path.sep); folder = path.dirname(folder)) {
+        try {
+          await fs.rmdir(folder);
+        } catch {
+          break; // not empty
+        }
+      }
+    }
+    if (!deleted.length) return deleted;
+    infos.movies = infos.movies.filter((m) => !wanted.has(m.id));
+    const showKeys = new Set(infos.movies.map((m) => m.showKey).filter(Boolean));
+    infos.shows = Object.fromEntries(Object.entries(infos.shows).filter(([key]) => showKeys.has(key)));
+    await writeMoviesInfos(config.moviesInfosPath, infos);
+    return deleted;
+  });
+}
+
 async function runPool(items, worker) {
   let next = 0;
   const runners = Array.from({ length: Math.min(CONCURRENCY, items.length) }, async () => {
@@ -238,7 +325,7 @@ export async function scanMovies(config, { force = false, logger = console, tmdb
     }
     const id = existing?.id ?? newId(f.file);
     if (!episode) {
-      moviesToLookUp.push({ id, ...f, parsed: parseMovieFilename(f.file) });
+      moviesToLookUp.push({ id, ...f, parsed: parseMovieFilename(f.file), ...(existing?.searchName && { searchName: existing.searchName }) });
       continue;
     }
     const key = showKey(episode.showTitle);
@@ -252,7 +339,8 @@ export async function scanMovies(config, { force = false, logger = console, tmdb
 
   async function lookUpMovie(base) {
     try {
-      const hit = await client.searchMovie(base.parsed.title, base.parsed.year);
+      // A name typed by a user (rematchMovie) wins over the one guessed from the filename.
+      const hit = base.searchName ? await client.searchMovie(base.searchName) : await client.searchMovie(base.parsed.title, base.parsed.year);
       if (hit) {
         result.push(toMovieInfo(base, await client.movieDetails(hit.id)));
         stats.matched++;
@@ -276,9 +364,11 @@ export async function scanMovies(config, { force = false, logger = console, tmdb
     try {
       if (!show) {
         const year = episodes.find((e) => e.parsed.year)?.parsed.year ?? null;
-        const hit = await client.searchTv(showTitle, year);
+        const searchName = previousShow?.searchName;
+        const hit = searchName ? await client.searchTv(searchName) : await client.searchTv(showTitle, year);
         show = hit ? toShowInfo(key, await client.tvDetails(hit.id)) : unmatchedShow(key, showTitle);
-        if (!hit) logger.warn?.(`No TMDB match for the show "${showTitle}"${year ? ` ${year}` : ''}`);
+        if (searchName) show.searchName = searchName;
+        if (!hit) logger.warn?.(`No TMDB match for the show "${searchName ?? showTitle}"${year && !searchName ? ` ${year}` : ''}`);
       }
     } catch (err) {
       // Keep the previous entries (or placeholders) so the episodes stay visible; retried next scan.
