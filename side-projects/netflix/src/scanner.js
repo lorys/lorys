@@ -43,11 +43,44 @@ export async function readMoviesInfos(filePath) {
   }
 }
 
-async function writeMoviesInfos(filePath, infos) {
+async function writeJson(filePath, data) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const tmp = `${filePath}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(infos, null, 2) + '\n');
+  await fs.writeFile(tmp, JSON.stringify(data, null, 2) + '\n');
   await fs.rename(tmp, filePath);
+}
+
+// file → username of whoever downloaded it, written before the file shows up in MOVIES_PATH and kept
+// until a scan copies it into the library entry (`addedBy`). Files copied in by hand have none.
+const addedByPath = (config) => path.join(path.dirname(config.moviesInfosPath), 'added-by.json');
+
+async function readAddedBy(config) {
+  try {
+    return JSON.parse(await fs.readFile(addedByPath(config), 'utf8'));
+  } catch (err) {
+    if (err.code === 'ENOENT') return {};
+    throw err;
+  }
+}
+
+let addedByLock = Promise.resolve();
+
+/** Runs `fn` on the file → username record, and saves it after. */
+function updateAddedBy(config, fn) {
+  const result = addedByLock.then(async () => {
+    const record = await readAddedBy(config);
+    fn(record);
+    await writeJson(addedByPath(config), record);
+  });
+  addedByLock = result.catch(() => {});
+  return result;
+}
+
+/** Remembers that `username` added `file` (relative to MOVIES_PATH), for the next scan. */
+export function recordAddedBy(config, file, username) {
+  return updateAddedBy(config, (record) => {
+    record[file] = username;
+  });
 }
 
 let libraryLock = Promise.resolve();
@@ -69,7 +102,7 @@ export async function renameMovieEntry(config, oldFile, newFile) {
   if (!movie) return false;
   movie.file = newFile;
   movie.size = (await fs.stat(path.join(config.moviesPath, newFile))).size;
-  await writeMoviesInfos(config.moviesInfosPath, infos);
+  await writeJson(config.moviesInfosPath, infos);
   return true;
 }
 
@@ -227,7 +260,7 @@ export async function rematchMovie(config, id, name, { tmdb, logger = console } 
     const movie = infos.movies[index];
     const item = { ...toMovieInfo({ ...movie, parsed: movie.parsed ?? parseMovieFilename(movie.file) }, details), searchName: name };
     infos.movies[index] = item;
-    await writeMoviesInfos(config.moviesInfosPath, infos);
+    await writeJson(config.moviesInfosPath, infos);
     logger.info?.(`"${movie.file}" matched by name "${name}" to "${item.title}"`);
     return { item };
   });
@@ -248,7 +281,7 @@ export async function rematchShow(config, key, name, { tmdb, logger = console } 
     if (!infos.shows[key]) return { missing: true };
     infos.shows[key] = show;
     infos.movies = infos.movies.map((m) => (m.kind === 'episode' && m.showKey === key ? toEpisodeInfo(m, show) : m));
-    await writeMoviesInfos(config.moviesInfosPath, infos);
+    await writeJson(config.moviesInfosPath, infos);
     logger.info?.(`Show "${key}" matched by name "${name}" to "${show.title}"`);
     return { item: show };
   });
@@ -279,7 +312,7 @@ export async function deleteLibraryItems(config, ids) {
     infos.movies = infos.movies.filter((m) => !wanted.has(m.id));
     const showKeys = new Set(infos.movies.map((m) => m.showKey).filter(Boolean));
     infos.shows = Object.fromEntries(Object.entries(infos.shows).filter(([key]) => showKeys.has(key)));
-    await writeMoviesInfos(config.moviesInfosPath, infos);
+    await writeJson(config.moviesInfosPath, infos);
     return deleted;
   });
 }
@@ -299,6 +332,7 @@ async function runPool(items, worker) {
  */
 export async function scanMovies(config, { force = false, logger = console, tmdb } = {}) {
   const previous = await readMoviesInfos(config.moviesInfosPath);
+  const addedBy = await readAddedBy(config);
   const known = new Map(previous.movies.map((m) => [m.file, m]));
   const files = await listVideoFiles(config.moviesPath);
 
@@ -316,11 +350,13 @@ export async function scanMovies(config, { force = false, logger = console, tmdb
   };
   for (const f of files) {
     const existing = known.get(f.file);
+    const by = existing?.addedBy ?? addedBy[f.file];
+    if (by) f.addedBy = by;
     const episode = parseEpisodeFilename(f.file);
     // Older versions matched episodes as movies: those are looked up again, as episodes.
     const sameKind = (existing?.kind === 'episode') === Boolean(episode);
     if (existing && existing.matched && sameKind && !force) {
-      result.push({ ...existing, size: f.size, addedAt: f.addedAt });
+      result.push({ ...existing, ...f });
       continue;
     }
     const id = existing?.id ?? newId(f.file);
@@ -428,6 +464,12 @@ export async function scanMovies(config, { force = false, logger = console, tmdb
   result.sort((a, b) => a.file.localeCompare(b.file));
   const present = new Set(files.map((f) => f.file));
   stats.removed = previous.movies.filter((m) => !present.has(m.file)).length;
-  await writeMoviesInfos(config.moviesInfosPath, { updatedAt: new Date().toISOString(), movies: result, shows });
+  await writeJson(config.moviesInfosPath, { updatedAt: new Date().toISOString(), movies: result, shows });
+  // Now in the library entries. Read again: a download may have finished during the scan.
+  if (files.some((f) => addedBy[f.file])) {
+    await updateAddedBy(config, (record) => {
+      for (const f of files) if (record[f.file] === addedBy[f.file]) delete record[f.file];
+    });
+  }
   return stats;
 }

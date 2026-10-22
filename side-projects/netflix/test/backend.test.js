@@ -383,6 +383,18 @@ test('HTTP API: downloads a movie into MOVIES_PATH with progress', async () => {
     assert.equal(running.status, 'downloading');
     assert.ok(await fs.stat(path.join(config.moviesPath, 'slow.mp4.part')));
     assert.equal(await needsScan(config), true, 'the finished file is picked up');
+
+    // The scan puts who downloaded it in the library entry, shown to everyone.
+    const addedByFile = path.join(path.dirname(config.moviesInfosPath), 'added-by.json');
+    assert.equal(JSON.parse(await fs.readFile(addedByFile, 'utf8'))['Telecharge.2020.mp4'], 'lorys');
+    await scanMovies(config, { tmdb: fakeTmdb, logger: quiet });
+    const listed = (await app.inject({ url: '/api/movies', cookies })).json().movies;
+    assert.equal(listed.find((m) => m.file === 'Telecharge.2020.mp4').addedBy, 'lorys');
+    assert.ok(listed.filter((m) => m.file !== 'Telecharge.2020.mp4').every((m) => !m.addedBy), 'files already there have no one');
+    assert.deepEqual(JSON.parse(await fs.readFile(addedByFile, 'utf8')), {});
+    await scanMovies(config, { tmdb: fakeTmdb, logger: quiet, force: true });
+    assert.equal((await app.inject({ url: '/api/movies', cookies })).json().movies.find((m) => m.file === 'Telecharge.2020.mp4').addedBy, 'lorys');
+
     assert.equal((await app.inject({ method: 'DELETE', url: `/api/downloads/${slow.id}`, cookies })).statusCode, 200);
     await waitFor(cookies, slow.id, 'cancelled');
     await assert.rejects(fs.stat(path.join(config.moviesPath, 'slow.mp4.part')), 'partial file removed');

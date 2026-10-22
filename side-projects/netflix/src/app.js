@@ -8,7 +8,7 @@ import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import { authenticate, createAccountsStore } from './accounts.js';
 import { createSessionToken, readSessionToken, SESSION_COOKIE, SESSION_TTL_MS } from './session.js';
-import { deleteLibraryItems, readMoviesInfos, rematchMovie, rematchShow } from './scanner.js';
+import { deleteLibraryItems, readMoviesInfos, recordAddedBy, rematchMovie, rematchShow } from './scanner.js';
 import { createConversionManager } from './conversions.js';
 import { createDownloadManager, diskUsage, DownloadRefusedError } from './downloads.js';
 import { createSubtitlesService } from './subtitles.js';
@@ -96,7 +96,10 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
   const app = Fastify({ logger });
   const getInfos = createInfosCache(config.moviesInfosPath);
   const accounts = createAccountsStore(config.accountsPath, config.accountsSecret);
-  const downloads = createDownloadManager(config.moviesPath, { logger: app.log });
+  const downloads = createDownloadManager(config.moviesPath, {
+    logger: app.log,
+    recordAddedBy: (file, username) => recordAddedBy(config, file, username),
+  });
   conversions ??= createConversionManager(config, { logger: app.log });
   app.decorate('conversions', conversions);
   const subtitles = createSubtitlesService(config.moviesPath, path.join(path.dirname(config.moviesInfosPath), 'subtitles'));
@@ -291,9 +294,9 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
   app.get('/api/downloads', { preHandler: requireUser }, async () => downloads.list());
 
   // 201 with the new download, or the reason it was refused (too many running, disk almost full).
-  const startDownload = async (reply, href, options) => {
+  const startDownload = async (request, reply, href, options) => {
     try {
-      return reply.code(201).send(await downloads.start(href, options));
+      return reply.code(201).send(await downloads.start(href, { ...options, addedBy: request.user }));
     } catch (err) {
       if (!(err instanceof DownloadRefusedError)) throw err;
       return reply.code(err.statusCode).send({ error: err.message });
@@ -317,7 +320,7 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
       if (!url || !['http:', 'https:'].includes(url.protocol)) {
         return reply.code(400).send({ error: 'Lien invalide (http ou https attendu)' });
       }
-      return startDownload(reply, url.href);
+      return startDownload(request, reply, url.href);
     },
   });
 
@@ -406,7 +409,7 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
       request.log.error({ link }, 'addAMovie returned an invalid link');
       return reply.code(502).send({ error: 'Le lien de téléchargement obtenu est invalide' });
     }
-    return startDownload(reply, url.href, { filename: typeof filename === 'string' ? filename : null });
+    return startDownload(request, reply, url.href, { filename: typeof filename === 'string' ? filename : null });
   });
 
   // ---------- Adding a whole season of a series by its exact name ----------
@@ -491,7 +494,7 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
         continue;
       }
       try {
-        started.push(await downloads.start(url.href, { filename: typeof filename === 'string' ? filename : null }));
+        started.push(await downloads.start(url.href, { filename: typeof filename === 'string' ? filename : null, addedBy: request.user }));
       } catch (err) {
         if (!(err instanceof DownloadRefusedError)) throw err;
         refused ??= err;

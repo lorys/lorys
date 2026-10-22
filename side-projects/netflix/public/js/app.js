@@ -489,6 +489,7 @@ function openMovieModal(movie) {
     ['Réalisation', movie.director],
     ['Distribution', movie.cast.join(', ')],
     ['Titre original', movie.originalTitle !== movie.title && movie.originalTitle],
+    ['Ajouté par', movie.addedBy],
     ['Fichier', movie.file],
   ]);
 }
@@ -508,7 +509,11 @@ function openShowModal(show) {
     .join(' · ');
   $('modal-tagline').textContent = '';
   $('modal-overview').textContent = show.overview || 'Aucun résumé disponible.';
-  renderCredits([['Titre original', show.originalTitle !== show.title && show.originalTitle]]);
+  renderCredits([
+    ['Titre original', show.originalTitle !== show.title && show.originalTitle],
+    // Episodes can come from several users; those already in the library before have no one.
+    ['Ajouté par', [...new Set(show.episodes.map((e) => e.addedBy).filter(Boolean))].join(', ')],
+  ]);
 
   $('modal-season').replaceChildren(...seasons.map((n) => new Option(`Saison ${n}`, String(n))));
   $('modal-episodes').hidden = false;

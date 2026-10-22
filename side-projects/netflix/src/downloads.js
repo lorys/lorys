@@ -92,7 +92,15 @@ export function pickFilename({ name: preferred, disposition, url, contentType })
 
 export function createDownloadManager(
   moviesPath,
-  { logger = console, maxRunning = MAX_RUNNING, maxSize = MAX_SIZE, minFreeStart = MIN_FREE_START, freeMargin = FREE_MARGIN } = {},
+  {
+    logger = console,
+    maxRunning = MAX_RUNNING,
+    maxSize = MAX_SIZE,
+    minFreeStart = MIN_FREE_START,
+    freeMargin = FREE_MARGIN,
+    // Called with (filename, username) before a finished file gets its final name.
+    recordAddedBy = null,
+  } = {},
 ) {
   const downloads = new Map(); // id → download
   const reserved = new Set(); // filenames claimed by running downloads
@@ -170,6 +178,13 @@ export function createDownloadManager(
       await pipeline(Readable.fromWeb(res.body), count, fs.createWriteStream(partPath, { flags: 'wx' }), {
         signal: download.controller.signal,
       });
+      if (download.addedBy && recordAddedBy) {
+        try {
+          await recordAddedBy(download.filename, download.addedBy);
+        } catch (err) {
+          logger.warn(`Could not record who added ${download.filename}: ${err.message}`);
+        }
+      }
       await fsp.rename(partPath, finalPath);
       download.status = 'done';
       logger.info(`Download finished: ${download.filename}`);
@@ -195,10 +210,10 @@ export function createDownloadManager(
   return {
     /**
      * Start downloading `url` in the background; resolves with the new download.
-     * `filename` overrides the name the server would give the file.
+     * `filename` overrides the name the server would give the file; `addedBy` is the user downloading it.
      * Rejects with a DownloadRefusedError when too many downloads run or the disk is almost full.
      */
-    async start(url, { filename = null } = {}) {
+    async start(url, { filename = null, addedBy = null } = {}) {
       if ((await diskUsage(moviesPath)).available < minFreeStart) {
         throw new DownloadRefusedError('Espace disque insuffisant pour lancer un téléchargement', 507);
       }
@@ -212,6 +227,7 @@ export function createDownloadManager(
         url,
         filename: null,
         preferredName: filename,
+        addedBy,
         received: 0,
         total: null,
         status: 'downloading',
