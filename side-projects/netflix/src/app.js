@@ -12,6 +12,7 @@ import { deleteLibraryItems, readMoviesInfos, recordAddedBy, rematchMovie, remat
 import { createConversionManager } from './conversions.js';
 import { createDownloadManager, diskUsage, DownloadRefusedError } from './downloads.js';
 import { createSubtitlesService } from './subtitles.js';
+import { COMMENT_MAX_LENGTH, createCommentsStore } from './comments.js';
 import { addAMovie } from './addAMovie.js';
 import { addASerie } from './addASerie.js';
 
@@ -102,6 +103,7 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
   });
   conversions ??= createConversionManager(config, { logger: app.log });
   app.decorate('conversions', conversions);
+  const comments = createCommentsStore(path.join(path.dirname(config.moviesInfosPath), 'comments.json'));
   const subtitles = createSubtitlesService(config.moviesPath, path.join(path.dirname(config.moviesInfosPath), 'subtitles'));
   app.addHook('onClose', () => downloads.close());
   app.addHook('onClose', () => conversions.close());
@@ -529,6 +531,41 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
       return reply.code(500).send({ error: 'Impossible de lire ces sous-titres' });
     }
   });
+
+  // ---------- Comments in the movie and series popups ----------
+
+  const commentBody = {
+    type: 'object',
+    required: ['text'],
+    properties: { text: { type: 'string', minLength: 1, maxLength: COMMENT_MAX_LENGTH } },
+  };
+
+  // `find` tells whether the movie or show exists; comments of items no longer in the library aren't served.
+  const commentRoutes = (prefix, find, itemKey, missingError) => {
+    app.get(`${prefix}/comments`, { preHandler: requireUser }, async (request, reply) => {
+      if (!(await find(request.params))) return reply.code(404).send({ error: missingError });
+      return comments.list(itemKey(request.params));
+    });
+    app.post(`${prefix}/comments`, { preHandler: requireUser, schema: { body: commentBody } }, async (request, reply) => {
+      const text = request.body.text.trim();
+      if (!text) return reply.code(400).send({ error: 'Le commentaire est vide' });
+      if (!(await find(request.params))) return reply.code(404).send({ error: missingError });
+      return reply.code(201).send(await comments.add(itemKey(request.params), request.user, text));
+    });
+  };
+
+  commentRoutes(
+    '/api/movies/:id',
+    async ({ id }) => (await getInfos()).movies.some((m) => m.id === id && m.kind !== 'episode'),
+    ({ id }) => `movie:${id}`,
+    'Film introuvable',
+  );
+  commentRoutes(
+    '/api/shows/:key',
+    async ({ key }) => (await getInfos()).movies.some((m) => m.kind === 'episode' && m.showKey === key),
+    ({ key }) => `show:${key}`,
+    'Série introuvable',
+  );
 
   // ---------- Fixing the TMDB match by name and deleting (admin only) ----------
 

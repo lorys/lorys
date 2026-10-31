@@ -325,6 +325,36 @@ test('HTTP API: watch progress is stored in the accounts file', async () => {
   }
 });
 
+test('HTTP API: comments are shared, dated and signed', async () => {
+  const app = buildApp(config, { logger: false });
+  try {
+    const login = await app.inject({ method: 'POST', url: '/api/login', payload: { username: 'lorys', password: 'pw' } });
+    const cookies = { session: login.cookies.find((c) => c.name === 'session').value };
+    const { movies } = (await app.inject({ url: '/api/movies', cookies })).json();
+    const url = `/api/movies/${movies.find((m) => m.kind !== 'episode').id}/comments`;
+
+    assert.equal((await app.inject({ url })).statusCode, 401);
+    assert.deepEqual((await app.inject({ url, cookies })).json(), []);
+
+    const post = await app.inject({ method: 'POST', url, cookies, payload: { text: '  Génial !  ' } });
+    assert.equal(post.statusCode, 201);
+    const comment = post.json();
+    assert.equal(comment.username, 'lorys');
+    assert.equal(comment.text, 'Génial !');
+    assert.ok(Date.now() - Date.parse(comment.createdAt) < 10_000);
+
+    await app.inject({ method: 'POST', url, cookies, payload: { text: 'Second' } });
+    assert.deepEqual((await app.inject({ url, cookies })).json().map((c) => c.text), ['Génial !', 'Second']);
+
+    assert.equal((await app.inject({ method: 'POST', url, cookies, payload: { text: '   ' } })).statusCode, 400);
+    assert.equal((await app.inject({ method: 'POST', url, cookies, payload: { text: 'x'.repeat(2001) } })).statusCode, 400);
+    assert.equal((await app.inject({ url: '/api/movies/000000000000/comments', cookies })).statusCode, 404);
+    assert.equal((await app.inject({ url: '/api/shows/nope/comments', cookies })).statusCode, 404);
+  } finally {
+    await app.close();
+  }
+});
+
 test('pickFilename prefers Content-Disposition, sanitizes, and rejects non-videos', () => {
   assert.equal(pickFilename({ disposition: 'attachment; filename="Amelie.2001.mkv"', url: 'https://x.test/dl?id=1' }), 'Amelie.2001.mkv');
   assert.equal(pickFilename({ disposition: "attachment; filename*=UTF-8''Am%C3%A9lie.mp4", url: 'https://x.test/a' }), 'Amélie.mp4');
