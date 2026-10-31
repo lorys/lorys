@@ -107,6 +107,16 @@
           </div>
           <ol class="episodes__list" id="modal-episode-list"></ol>
         </section>
+        <section class="comments" id="modal-comments" aria-labelledby="modal-comments-title">
+          <h3 id="modal-comments-title">Commentaires</h3>
+          <ol class="comments__list" id="modal-comment-list"></ol>
+          <p class="comments__empty" id="modal-comments-empty" hidden>Aucun commentaire pour l'instant. Soyez le premier !</p>
+          <form class="comments__form" id="modal-comment-form">
+            <textarea class="comments__input" id="modal-comment-text" name="text" rows="2" maxlength="2000" placeholder="Ajouter un commentaire…" aria-label="Votre commentaire" required></textarea>
+            <button type="submit" class="btn btn--primary" id="modal-comment-send">Publier</button>
+          </form>
+          <p class="add-movie__status add-movie__status--error" id="modal-comment-status" role="status" hidden></p>
+        </section>
         <div class="modal__admin" id="modal-admin" hidden>
           <button class="btn btn--danger" id="modal-delete"></button>
           <p class="add-movie__status add-movie__status--error" id="modal-delete-status" role="status" hidden></p>

@@ -95,6 +95,7 @@ function renderWatching(list) {
   }
   for (const [key, li] of existing) if (!keys.has(key)) li.remove();
   $('watching').hidden = !items.length;
+  document.body.classList.toggle('has-watching', items.length > 0);
 }
 
 function createWatcher({ username, movie }) {
@@ -149,6 +150,7 @@ $('logout-btn').addEventListener('click', async () => {
   admin = false;
   clearTimeout(conversionsTimer);
   clearTimeout(watchingTimer);
+  renderWatching([]);
   showLogin();
 });
 
@@ -439,6 +441,7 @@ function openModal(item) {
   if (isShow(item)) openShowModal(item);
   else openMovieModal(item);
   renderModalTools(item);
+  loadComments(item);
   $('modal').hidden = false;
   document.body.classList.add('no-scroll');
 }
@@ -610,6 +613,73 @@ $('modal-play').addEventListener('click', () => {
 $('modal-restart').addEventListener('click', () => {
   closeModal();
   playMovie(modalMovie, { restart: true });
+});
+
+// ---------- Comments ----------
+
+const commentDate = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' });
+
+function createComment({ username, text, createdAt }) {
+  const li = document.createElement('li');
+  li.className = 'comment';
+  li.innerHTML = `
+    <div class="comment__head"><span class="comment__user"></span><time class="comment__date"></time></div>
+    <p class="comment__text"></p>`;
+  li.querySelector('.comment__user').textContent = username;
+  const time = li.querySelector('.comment__date');
+  time.dateTime = createdAt;
+  time.textContent = commentDate.format(new Date(createdAt));
+  li.querySelector('.comment__text').textContent = text;
+  return li;
+}
+
+function renderComments(list) {
+  $('modal-comment-list').replaceChildren(...list.map(createComment));
+  $('modal-comments-empty').hidden = list.length > 0;
+}
+
+async function loadComments(item) {
+  $('modal-comment-list').replaceChildren();
+  $('modal-comments-empty').hidden = true;
+  $('modal-comment-status').hidden = true;
+  $('modal-comment-text').value = '';
+  $('modal-comment-send').disabled = false;
+  try {
+    const list = await api(`${itemUrl(item)}/comments`);
+    if (modalMovie === item) renderComments(list); // unless another popup opened meanwhile
+  } catch (err) {
+    if (modalMovie !== item) return;
+    $('modal-comment-status').textContent = `Impossible de charger les commentaires : ${err.message}`;
+    $('modal-comment-status').hidden = false;
+  }
+}
+
+$('modal-comment-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const item = modalMovie;
+  const text = $('modal-comment-text').value.trim();
+  if (!text) return;
+  $('modal-comment-send').disabled = true;
+  $('modal-comment-status').hidden = true;
+  try {
+    const comment = await api(`${itemUrl(item)}/comments`, { method: 'POST', body: JSON.stringify({ text }) });
+    if (modalMovie !== item) return;
+    $('modal-comment-list').append(createComment(comment));
+    $('modal-comments-empty').hidden = true;
+    $('modal-comment-text').value = '';
+  } catch (err) {
+    $('modal-comment-status').textContent = err.message;
+    $('modal-comment-status').hidden = false;
+  } finally {
+    $('modal-comment-send').disabled = false;
+  }
+});
+
+// Enter publishes, Shift+Enter adds a line break.
+$('modal-comment-text').addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  $('modal-comment-form').requestSubmit();
 });
 
 // ---------- Fixing the TMDB match, deleting (admin) ----------
