@@ -33,7 +33,8 @@ async function api(endpoint, params = {}) {
  * @param {string} name Movie's name
  * @returns {Promise<{ link: string, filename: string, filesize: number }>}
  */
-export async function addASerie(name, season = 1) {
+export async function addASerie(name, season = 1, type, chosenSerieIndex) {
+    const SERIE_TYPE = type || "VOSTFR";
     const ztdomain = await (async () => {
         const source = await fetch(process.env.GET_ZT_URL);
         const data = await source.text();
@@ -50,7 +51,23 @@ export async function addASerie(name, season = 1) {
     if (!allResults || !allResults.length)
         return { ok: false, error: 'not found' };
 
-    const serieQ = await fetch(`https://${ztdomain}/?p=serie&id=${allResults[0]}`);
+    if (!chosenSerieIndex) {
+      const totalResults = await Promise.allSettled(Array.from(searchResult.matchAll(/<img class="mainimg" data-newsid="880" src="([^"]{0,})/g)).map(async ([_, imgUrl]) => {
+        const reqImg = await fetch(`https://${ztdomain}${imgUrl}`);
+        const buffer = Buffer.from(await reqImg.arrayBuffer());
+        const mime = reqImg.headers.get("content-type") || "image/png";
+        return `data:${mime};base64,${buffer.toString("base64")}`;
+      }));
+
+      const totalNames = Array.from(searchResult.matchAll(/<div class="cover_infos_title">[^<]{0,}<a href="[^"]{0,}">([^<]{0,})<\/a><br>/g)).map(e => e[1]);
+
+      return totalResults.map((e, i) => ({
+        name: totalNames[i] || '❓🤷‍♂️',
+        img: e.value || 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAMAAADz0U65AAAABlBMVEUAAAAAAAClZ7nPAAAAAnRSTlMA/1uRIrUAAAAbSURBVHjaY2BAAEYggNAQzADjYKORtTEwMAAAArgAEenwAD0AAAAASUVORK5CYII='
+      }));
+    }
+
+    const serieQ = await fetch(`https://${ztdomain}/?p=serie&id=${chosenSerieIndex}`);
     const serieData = await serieQ.text();
 
     const rawSerieName = Array.from(serieData.matchAll(/<div style="font-family: 'Ubuntu Condensed','Segoe UI',Verdana,Helvetica,sans-serif;font-size: 24px;letter-spacing: 0\.05em;color: #ff4d00;font-weight: bold;text-align: center;margin: 25px;">([^<]{0,})<\/div>/g));
@@ -60,7 +77,7 @@ export async function addASerie(name, season = 1) {
 
     const allSeasons = Array.from(serieData.matchAll(/(?<=Saisons également disponibles pour cette série:(?:(?!Qualités également disponibles pour cette série:)[\s\S])*?)<a\s+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)).map(e => [e[1].replaceAll('&amp;', '&'), e[2].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()]);
 
-    const allWantedSeasons = allSeasons.filter(e => e[1].indexOf('(VOSTFR)') > -1);
+    const allWantedSeasons = allSeasons.filter(e => (e[1].indexOf(`(${SERIE_TYPE})`) > -1 || e[1].indexOf(`(${SERIE_TYPE})`) > -1));
 
     const currentPageSeason = Number(serieData.match(/Episodes\s*\|\s*Saison\s*(\d+)/i)?.[1]);
     const currentPageAvailableQualities = Array.from(serieData.matchAll(/(?<=Qualités également disponibles pour cette série:(?:(?!<\/div>)[\s\S])*?)<a\s+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)).map(e => [e[1].replaceAll('&amp;', '&'), e[2].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()]);
@@ -102,7 +119,7 @@ export async function addASerie(name, season = 1) {
         ...(Array.from(wantedSeasonData.matchAll(nitroflare)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
         ...(Array.from(wantedSeasonData.matchAll(turbobit)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
       ];
-    } else if (currentPageSeason === season && (currentPageQuality.indexOf('VOSTFR') > -1 || currentPageQuality.indexOf('VF') > -1)) {
+    } else if (currentPageSeason === season && currentPageQuality.indexOf(SERIE_TYPE) > -1) {
       allDownloadLinks = [
         ...(Array.from(serieData.matchAll(rapidgator)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
         ...(Array.from(serieData.matchAll(uploady)).map(m => [m[1].trim(), m[2].replace(/<[^>]*>/g, '').trim()])),
@@ -112,7 +129,7 @@ export async function addASerie(name, season = 1) {
       ];
     }
 
-    let foundRightQuality = currentPageAvailableQualities.find(e => (e[1].indexOf('VOSTFR') > -1 || e[1].indexOf('VF') > -1));
+    let foundRightQuality = currentPageAvailableQualities.find(e => e[1].indexOf(SERIE_TYPE) > -1);
     if (!allDownloadLinks.length && currentPageSeason === season && foundRightQuality) {
       const wantedQualityQ = await fetch(`https://${ztdomain}/${foundRightQuality[0]}`);
       const wantedQualityData = await wantedQualityQ.text();
