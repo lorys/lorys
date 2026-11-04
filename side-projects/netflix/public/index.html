@@ -150,12 +150,18 @@
           <div class="download__form">
             <input id="add-movie-name" class="download__url" name="name" placeholder="Nom exact du film" autocomplete="off" maxlength="300" required />
             <input id="add-movie-season" class="download__url add-movie__season" name="season" type="number" min="0" max="1000" step="1" value="1" placeholder="Saison" aria-label="Saison" hidden disabled required />
+            <select id="add-movie-type" class="download__url add-movie__type" name="type" aria-label="Format" hidden disabled>
+              <option value="VOSTFR" selected>VOSTFR</option>
+              <option value="VF">VF</option>
+              <option value="VO">VO</option>
+              <option value="VF HD">VF HD</option>
+            </select>
             <button type="submit" class="btn btn--primary" id="add-movie-send">Envoyer</button>
           </div>
           <p class="add-movie__note" id="add-movie-season-note" hidden>Toute la saison sera téléchargée, épisode par épisode.</p>
         </form>
         <div id="add-movie-choices" hidden>
-          <p class="downloads__hint">Choisissez le film à télécharger.</p>
+          <p class="downloads__hint" id="add-movie-choices-hint">Choisissez le film à télécharger.</p>
           <ul id="add-movie-list" class="add-movie__list"></ul>
           <div class="modal__actions">
             <button class="btn btn--secondary" id="add-movie-choices-back">Retour</button>

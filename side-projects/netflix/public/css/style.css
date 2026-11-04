@@ -1124,6 +1124,7 @@ body.has-watching .footer { padding-bottom: calc(2rem + 6.5rem + env(safe-area-i
 .add-movie__kind input:checked + span { background: #fff; color: #141414; font-weight: 600; }
 .add-movie__kind input:focus-visible + span { outline: 2px solid #fff; outline-offset: -4px; }
 .add-movie__season { flex: 0 0 6rem; width: 6rem; }
+.add-movie__type { flex: 0 0 7rem; width: 7rem; }
 .add-movie__note { margin: 0.6rem 0 0; font-size: 0.85rem; color: var(--muted); }
 .add-movie__hint-slow { display: block; margin-top: 0.2rem; font-size: 0.8rem; opacity: 0.75; }
 @media (max-width: 500px) {

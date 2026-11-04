@@ -416,8 +416,11 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
 
   // ---------- Adding a whole season of a series by its exact name ----------
 
-  // Same flow as movies, but addASerie() finds a single season whose `download` callback gives one link per episode.
-  const pendingSeasons = new Map(); // token → { username, download, expiresAt }
+  // Two calls to addASerie(): addASerie(name, season) lists the series matching the name ([{ name, img }]),
+  // then addASerie(name, season, type, index) finds the season of the picked series, whose `download` callback gives one link per episode.
+  // Series listed by the same search share a `search` id, so confirming one discards the others.
+  const SERIE_TYPES = ['VOSTFR', 'VF', 'VO', 'VF HD'];
+  const pendingSeasons = new Map(); // token → { username, search, name, season, type, index, expiresAt }
 
   const prunePendingSeasons = () => {
     for (const [token, pending] of pendingSeasons) {
@@ -430,13 +433,17 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
     schema: {
       body: {
         type: 'object',
-        required: ['name', 'season'],
-        properties: { name: { type: 'string', minLength: 1, maxLength: 300 }, season: { type: 'integer', minimum: 0, maximum: 1000 } },
+        required: ['name', 'season', 'type'],
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 300 },
+          season: { type: 'integer', minimum: 0, maximum: 1000 },
+          type: { type: 'string', enum: SERIE_TYPES },
+        },
       },
     },
     handler: async (request, reply) => {
       const name = request.body.name.trim();
-      const { season } = request.body;
+      const { season, type } = request.body;
       if (!name) return reply.code(400).send({ error: 'Indiquez le nom de la série' });
       let found;
       try {
@@ -445,34 +452,63 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
         request.log.error(err, 'addASerie failed');
         return reply.code(502).send({ error: 'La recherche de la série a échoué' });
       }
-      if (found && found.ok === false && found.error !== 'not found') {
+      if (found && !Array.isArray(found) && found.ok === false && found.error !== 'not found') {
         return reply.code(404).send({ error: String(found.error) });
       }
-      if (typeof found?.download !== 'function') {
-        if (found && found.ok !== false) {
-          request.log.error('addASerie returned a season without a download callback');
-          return reply.code(502).send({ error: 'La recherche de la série a échoué' });
-        }
-        return reply.code(404).send({ error: `Aucune saison ${season} trouvée pour « ${name} »` });
+      if (found && !Array.isArray(found) && found.ok !== false) {
+        request.log.error('addASerie returned something else than a list of series');
+        return reply.code(502).send({ error: 'La recherche de la série a échoué' });
       }
+      // Keep each series' index in the list given by addASerie(): it identifies the series in the second call.
+      const choices = (Array.isArray(found) ? found : []).map((serie, index) => ({ serie, index })).filter(({ serie }) => serie);
+      if (!choices.length) return reply.code(404).send({ error: `Aucune série trouvée pour « ${name} »` });
       prunePendingSeasons();
-      const token = crypto.randomBytes(12).toString('hex');
-      pendingSeasons.set(token, { username: request.user, download: found.download, expiresAt: Date.now() + PENDING_MOVIE_TTL_MS });
-      return { token, serieName: found.serieName ?? name, imgUrl: found.imgUrl ?? null, season };
+      const search = crypto.randomBytes(12).toString('hex');
+      const expiresAt = Date.now() + PENDING_MOVIE_TTL_MS;
+      return {
+        season,
+        type,
+        series: choices.map(({ serie, index }) => {
+          const token = crypto.randomBytes(12).toString('hex');
+          pendingSeasons.set(token, { username: request.user, search, name, season, type, index, expiresAt });
+          return { token, serieName: typeof serie.name === 'string' ? serie.name : name, imgUrl: typeof serie.img === 'string' ? serie.img : null };
+        }),
+      };
     },
   });
 
-  // Starts one download per episode. 201 as soon as one started; `failed` lists the episodes that didn't.
+  // Finds the season of the picked series, then starts one download per episode.
+  // 201 as soon as one started; `failed` lists the episodes that didn't.
   app.post('/api/add-serie/:token/download', { preHandler: requireUser }, async (request, reply) => {
     prunePendingSeasons();
     const pending = pendingSeasons.get(request.params.token);
     if (!pending || pending.username !== request.user) {
       return reply.code(404).send({ error: 'Cette recherche a expiré, recommencez' });
     }
-    pendingSeasons.delete(request.params.token);
+    for (const [token, other] of pendingSeasons) {
+      if (other.search === pending.search) pendingSeasons.delete(token);
+    }
+    const { name, season, type, index } = pending;
+    let found;
+    try {
+      found = await addASerie(name, season, type, index);
+    } catch (err) {
+      request.log.error(err, 'addASerie failed');
+      return reply.code(502).send({ error: 'La recherche de la saison a échoué' });
+    }
+    if (found && found.ok === false && found.error !== 'not found') {
+      return reply.code(404).send({ error: String(found.error) });
+    }
+    if (typeof found?.download !== 'function') {
+      if (found && found.ok !== false) {
+        request.log.error('addASerie returned a season without a download callback');
+        return reply.code(502).send({ error: 'La recherche de la saison a échoué' });
+      }
+      return reply.code(404).send({ error: `Aucune saison ${season} en ${type} trouvée pour cette série` });
+    }
     let episodes;
     try {
-      episodes = await pending.download();
+      episodes = await found.download();
     } catch (err) {
       request.log.error(err, 'addASerie download callback failed');
       return reply.code(502).send({ error: "Impossible d'obtenir les liens des épisodes" });
