@@ -67,7 +67,7 @@ export async function addASerie(name, season = 1, type, chosenSerieIndex) {
       }));
     }
 
-    const serieQ = await fetch(`https://${ztdomain}/?p=serie&id=${chosenSerieIndex}`);
+    const serieQ = await fetch(`https://${ztdomain}/?p=serie&id=${allResults[chosenSerieIndex]}`);
     const serieData = await serieQ.text();
 
     const rawSerieName = Array.from(serieData.matchAll(/<div style="font-family: 'Ubuntu Condensed','Segoe UI',Verdana,Helvetica,sans-serif;font-size: 24px;letter-spacing: 0\.05em;color: #ff4d00;font-weight: bold;text-align: center;margin: 25px;">([^<]{0,})<\/div>/g));
