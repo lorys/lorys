@@ -13,7 +13,7 @@ import {
   verifyPassword,
   writeAccounts,
 } from '../src/accounts.js';
-import { createSessionToken, readSessionToken } from '../src/session.js';
+import { CAST_TTL_MS, createCastToken, createSessionToken, readCastToken, readSessionToken } from '../src/session.js';
 import { parseMovieFilename } from '../src/filename.js';
 import { readMoviesInfos, scanMovies } from '../src/scanner.js';
 import { needsScan } from '../src/watcher.js';
@@ -200,6 +200,61 @@ test('HTTP API: auth, movie list and ranged streaming', async () => {
   } finally {
     await app.close();
   }
+});
+
+test('HTTP API: cast links open one movie without the cookie, until replaced or logged out', async () => {
+  const app = buildApp(config, { logger: false, loginIntervalMs: 0 });
+  try {
+    const login = await app.inject({ method: 'POST', url: '/api/login', payload: { username: 'lorys', password: 'pw' } });
+    const cookies = { session: login.cookies.find((c) => c.name === 'session').value };
+    const { movies } = (await app.inject({ url: '/api/movies', cookies })).json();
+    const [first, second] = movies;
+
+    assert.equal((await app.inject({ method: 'POST', url: `/api/movies/${first.id}/cast` })).statusCode, 401);
+    assert.equal((await app.inject({ method: 'POST', url: '/api/movies/nope/cast', cookies })).statusCode, 404);
+
+    const { url } = (await app.inject({ method: 'POST', url: `/api/movies/${first.id}/cast`, cookies })).json();
+    assert.match(url, new RegExp(`^/api/movies/${first.id}/stream\\?cast=`));
+    const ranged = await app.inject({ url, headers: { range: 'bytes=0-9' } });
+    assert.equal(ranged.statusCode, 206, 'the receiver streams without the cookie');
+    assert.equal((await app.inject({ url, headers: { range: 'bytes=10-19' } })).statusCode, 206, 'and can request it many times');
+
+    // The TV pulling video through the cast link shows the user as watching, at about where it reads.
+    await app.inject({ url, headers: { range: 'bytes=500-599' } });
+    const watching = (await app.inject({ url: '/api/watching', cookies })).json();
+    assert.equal(watching.length, 1);
+    assert.equal(watching[0].username, 'lorys');
+    assert.equal(watching[0].movieId, first.id);
+    await app.inject({ method: 'PUT', url: `/api/progress/${first.id}`, cookies, payload: { position: 100, duration: 1000 } });
+    const fromSave = (await app.inject({ url: '/api/watching', cookies })).json();
+    assert.equal(fromSave[0].position, 100, 'a recent save from the player wins over the estimate');
+    await app.inject({ method: 'DELETE', url: `/api/progress/${first.id}`, cookies });
+
+    // Only that movie, and a tampered link is refused.
+    const token = new URL(url, 'http://x').searchParams.get('cast');
+    assert.equal((await app.inject(`/api/movies/${second.id}/stream?cast=${token}`)).statusCode, 401);
+    assert.equal((await app.inject(`${url.slice(0, -2)}xx`)).statusCode, 401);
+
+    // A new cast link cancels the previous one.
+    const { url: next } = (await app.inject({ method: 'POST', url: `/api/movies/${second.id}/cast`, cookies })).json();
+    assert.equal((await app.inject(url)).statusCode, 401);
+    assert.equal((await app.inject(next)).statusCode, 200);
+
+    // Logging out (all devices) cancels it too.
+    await app.inject({ method: 'POST', url: '/api/logout', cookies });
+    assert.equal((await app.inject(next)).statusCode, 401);
+  } finally {
+    await app.close();
+  }
+});
+
+test('cast tokens expire after 5 hours', () => {
+  const now = Date.now();
+  const token = createCastToken({ movieId: 'm1', username: 'lorys', version: 0, nonce: 'n' }, 'secret', now);
+  assert.deepEqual(readCastToken(token, 'secret', now + CAST_TTL_MS - 1), { movieId: 'm1', username: 'lorys', version: 0, nonce: 'n' });
+  assert.equal(readCastToken(token, 'secret', now + CAST_TTL_MS), null);
+  assert.equal(readCastToken(token, 'other-secret', now), null);
+  assert.equal(readCastToken(createSessionToken('lorys', 0, 'secret', now), 'secret', now), null, 'a session token is not a cast token');
 });
 
 test('HTTP API: security headers and login rate limit', async () => {

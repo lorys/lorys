@@ -696,7 +696,7 @@ body.has-watching .footer { padding-bottom: calc(2rem + 6.5rem + env(safe-area-i
 }
 .scrubber:hover .scrubber__tooltip, .player--scrubbing .scrubber__tooltip { opacity: 1; }
 
-/* Popovers: volume (on hover), audio & subtitles, speed */
+/* Popovers: volume (on hover), audio & subtitles */
 
 .popover-anchor { position: relative; display: flex; }
 .popover {
@@ -767,48 +767,7 @@ body.has-watching .footer { padding-bottom: calc(2rem + 6.5rem + env(safe-area-i
 .tracks__col button[aria-checked='true'] { color: white; font-weight: 700; }
 .tracks__col button[aria-checked='true'] svg { visibility: visible; }
 
-.popover--speed { padding: 1.4rem 1.8rem 1.2rem; }
-.speed { position: relative; display: flex; gap: 0; }
-.speed::before {
-  content: '';
-  position: absolute;
-  top: 11px;
-  left: 3.2rem;
-  right: 3.2rem;
-  height: 2px;
-  background: #6d6d6e;
-}
-.speed button {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.8rem;
-  width: 6.4rem;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: #b3b3b3;
-  font-size: 1rem;
-}
-.speed__dot {
-  width: 12px;
-  height: 12px;
-  margin-top: 6px;
-  border-radius: 50%;
-  background: #b3b3b3;
-  transition: transform 0.15s;
-}
-.speed button:hover .speed__dot { transform: scale(1.3); }
-.speed button:hover, .speed button:focus-visible { color: white; outline: none; }
-.speed button[aria-checked='true'] { color: white; font-weight: 700; }
-.speed button[aria-checked='true'] .speed__dot {
-  width: 24px;
-  height: 24px;
-  margin-top: 0;
-  background: white;
-  box-shadow: inset 0 0 0 5px white, inset 0 0 0 7px #262626;
-}
+.pbtn[hidden] { display: none; }
 
 /* Subtitles: drawn by hand so they rise above the controls when those are shown. */
 
@@ -971,10 +930,6 @@ body.has-watching .footer { padding-bottom: calc(2rem + 6.5rem + env(safe-area-i
   .popover h3 { font-size: 1.1rem; }
   .popover--tracks { position: fixed; left: 1rem; right: 1rem; bottom: 6rem; min-width: 0; }
   .tracks__col { min-width: 0; flex: 1; }
-  .popover--speed { position: fixed; left: 1rem; right: 1rem; bottom: 6rem; padding: 1.2rem 0.5rem; }
-  .speed { justify-content: space-between; }
-  .speed button { width: auto; flex: 1; font-size: 0.85rem; }
-  .speed::before { left: 10%; right: 10%; }
   .player--active .player__subs { bottom: calc(7% + 5.5rem); }
 }
 
@@ -1012,7 +967,7 @@ body.has-watching .footer { padding-bottom: calc(2rem + 6.5rem + env(safe-area-i
   .scrubber__thumb { transform: scale(1.2); }
   .player--scrubbing .scrubber__thumb { transform: scale(1.7); }
   .player--active .player__subs { bottom: calc(7% + 6rem); }
-  .popover--tracks, .popover--speed { max-height: calc(100dvh - 8rem); overflow-y: auto; }
+  .popover--tracks { max-height: calc(100dvh - 8rem); overflow-y: auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {

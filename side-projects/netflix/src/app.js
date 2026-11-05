@@ -2,12 +2,13 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { pipeline, Transform } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import { authenticate, createAccountsStore } from './accounts.js';
-import { createSessionToken, readSessionToken, SESSION_COOKIE, SESSION_TTL_MS } from './session.js';
+import { createCastToken, createSessionToken, readCastToken, readSessionToken, SESSION_COOKIE, SESSION_TTL_MS } from './session.js';
 import { deleteLibraryItems, readMoviesInfos, recordAddedBy, rematchMovie, rematchShow } from './scanner.js';
 import { createConversionManager } from './conversions.js';
 import { createDownloadManager, diskUsage, DownloadRefusedError } from './downloads.js';
@@ -21,6 +22,10 @@ const PENDING_MOVIE_TTL_MS = 15 * 60_000;
 
 // A user counts as watching while their player saved progress this recently (it saves every 10 s).
 const WATCHING_TTL_MS = 30_000;
+
+// A cast receiver (TV) counts as watching while it pulled video through its cast link this recently.
+// Receivers fill a buffer and then pause their downloads, so this is longer than WATCHING_TTL_MS.
+const CAST_WATCHING_TTL_MS = 2 * 60_000;
 
 // At most one login attempt every this long, all clients together (brute force and scrypt load).
 const LOGIN_INTERVAL_MS = 2_000;
@@ -118,6 +123,7 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
   // `session` is what the cookie claims; `user` is only set once requireUser checked it against the account.
   app.decorateRequest('session', null);
   app.decorateRequest('user', null);
+  app.decorateRequest('viaCast', false);
   app.addHook('onRequest', async (request) => {
     request.session = readSessionToken(request.cookies[SESSION_COOKIE], config.sessionSecret);
   });
@@ -128,6 +134,24 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
     const account = session && (await accounts.read()).find((a) => a.username === session.username);
     if (!account || (account.sessionVersion ?? 0) !== session.version) return reply.code(401).send({ error: 'Non authentifié' });
     request.user = account.username;
+  };
+
+  // Latest cast link nonce per user: creating a new cast link cancels the previous one. Kept in
+  // memory, so a restart cancels them all (the player just asks for a new one on the next cast).
+  const castNonces = new Map();
+
+  // The stream accepts a cast link (`?cast=`, for the TV that has no cookie) or the session cookie.
+  const requireStreamAccess = async (request, reply) => {
+    const cast = readCastToken(request.query.cast, config.sessionSecret);
+    if (cast && cast.movieId === request.params.id && castNonces.get(cast.username) === cast.nonce) {
+      const account = (await accounts.read()).find((a) => a.username === cast.username);
+      if (account && (account.sessionVersion ?? 0) === cast.version) {
+        request.user = account.username;
+        request.viaCast = true;
+        return;
+      }
+    }
+    return requireUser(request, reply);
   };
 
   const isAdmin = (username) => Boolean(config.admin) && username === config.admin;
@@ -208,13 +232,52 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
 
   // username → { movieId, position, duration, updatedAt }: last progress saved, kept in memory only.
   const lastProgress = new Map();
+  // username → { movieId, ratio, at }: last video bytes sent through a cast link, and where they sit
+  // in the file. While the phone that started the cast is locked, its player saves nothing: the
+  // TV's downloads are then the only sign that someone is watching.
+  const castActivity = new Map();
+
+  /** Passes the stream through, recording the cast receiver's activity at each chunk it pulls. */
+  function trackCast(username, movieId, stream, start, size) {
+    let offset = start;
+    const tap = new Transform({
+      transform(chunk, encoding, callback) {
+        offset += chunk.length;
+        castActivity.set(username, { movieId, ratio: offset / size, at: Date.now() });
+        callback(null, chunk);
+      },
+    });
+    return pipeline(stream, tap, () => {});
+  }
 
   app.get('/api/watching', { preHandler: requireUser }, async () => {
-    const ids = new Set((await getInfos()).movies.map((m) => m.id));
+    const { movies } = await getInfos();
+    const byId = new Map(movies.map((m) => [m.id, m]));
     const now = Date.now();
-    return [...lastProgress]
-      .filter(([, entry]) => now - entry.updatedAt < WATCHING_TTL_MS && ids.has(entry.movieId))
-      .map(([username, entry]) => ({ username, ...entry }));
+    const watchers = new Map();
+    for (const [username, entry] of lastProgress) {
+      if (now - entry.updatedAt < WATCHING_TTL_MS && byId.has(entry.movieId)) watchers.set(username, entry);
+    }
+    // Casting with no recent save from the player: the position is estimated from the bytes the TV
+    // is reading (a bit ahead of what is on screen, by the receiver's buffer).
+    let accountsList = null;
+    for (const [username, cast] of castActivity) {
+      if (watchers.has(username) || now - cast.at >= CAST_WATCHING_TTL_MS || !byId.has(cast.movieId)) continue;
+      const saved = lastProgress.get(username);
+      accountsList ??= await accounts.read();
+      const duration =
+        (saved?.movieId === cast.movieId && saved.duration) ||
+        accountsList.find((a) => a.username === username)?.progress?.[cast.movieId]?.duration ||
+        (byId.get(cast.movieId).runtime ?? 0) * 60 ||
+        null;
+      watchers.set(username, {
+        movieId: cast.movieId,
+        position: duration ? Math.round(Math.min(1, cast.ratio) * duration) : null,
+        duration,
+        updatedAt: cast.at,
+      });
+    }
+    return [...watchers].map(([username, entry]) => ({ username, ...entry }));
   });
 
   // Hide entries of movies that are no longer in the library (kept in case they come back).
@@ -277,6 +340,8 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
       if (!found) return reply.code(401).send({ error: 'Compte introuvable' });
       if (entry) lastProgress.set(request.user, { movieId: request.params.id, position, duration, updatedAt: Date.now() });
       else lastProgress.delete(request.user);
+      // Finished: the TV's last downloads must not keep showing it as being watched.
+      if (!entry && castActivity.get(request.user)?.movieId === request.params.id) castActivity.delete(request.user);
       return { progress: entry, watched: watchedAt };
     },
   });
@@ -655,7 +720,22 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
     return deleteItems(request, reply, episodes);
   });
 
-  app.get('/api/movies/:id/stream', { preHandler: requireUser }, async (request, reply) => {
+  // Called when the user clicks the cast button: a stream URL the receiver can open without the cookie.
+  app.post('/api/movies/:id/cast', { preHandler: requireUser }, async (request, reply) => {
+    const { movies } = await getInfos();
+    const movie = movies.find((m) => m.id === request.params.id);
+    if (!movie) return reply.code(404).send({ error: 'Film introuvable' });
+    const account = (await accounts.read()).find((a) => a.username === request.user);
+    const nonce = crypto.randomBytes(16).toString('base64url');
+    castNonces.set(request.user, nonce);
+    const token = createCastToken(
+      { movieId: movie.id, username: request.user, version: account.sessionVersion ?? 0, nonce },
+      config.sessionSecret,
+    );
+    return { url: `/api/movies/${encodeURIComponent(movie.id)}/stream?cast=${token}` };
+  });
+
+  app.get('/api/movies/:id/stream', { preHandler: requireStreamAccess }, async (request, reply) => {
     const { movies } = await getInfos();
     const movie = movies.find((m) => m.id === request.params.id);
     if (!movie) return reply.code(404).send({ error: 'Film introuvable' });
@@ -678,7 +758,8 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
 
     if (!request.headers.range) {
       reply.header('Content-Length', stat.size);
-      return reply.send(fs.createReadStream(filePath));
+      const stream = fs.createReadStream(filePath);
+      return reply.send(request.viaCast ? trackCast(request.user, movie.id, stream, 0, stat.size) : stream);
     }
     const range = parseRange(request.headers.range, stat.size);
     if (!range) {
@@ -688,7 +769,8 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
       .code(206)
       .header('Content-Range', `bytes ${range.start}-${range.end}/${stat.size}`)
       .header('Content-Length', range.end - range.start + 1);
-    return reply.send(fs.createReadStream(filePath, range));
+    const stream = fs.createReadStream(filePath, range);
+    return reply.send(request.viaCast ? trackCast(request.user, movie.id, stream, range.start, stat.size) : stream);
   });
 
   return app;

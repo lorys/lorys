@@ -1,5 +1,5 @@
 // Netflix-style controls on top of a bare <video>: auto-hiding chrome, scrubber, volume,
-// speed, fullscreen, keyboard shortcuts and subtitles rendered by hand (so they can be styled
+// casting, fullscreen, keyboard shortcuts and subtitles rendered by hand (so they can be styled
 // and move up when the controls are visible).
 
 const $ = (id) => document.getElementById(id);
@@ -7,11 +7,11 @@ const $ = (id) => document.getElementById(id);
 const IDLE_MS = 3000;
 const PAUSED_INFO_MS = 6000;
 const SEEK_STEP = 10;
-const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5];
 const SUBS_PREF_KEY = 'cineflix.subtitles';
 const VOLUME_PREF_KEY = 'cineflix.volume';
 const NEXT_COUNTDOWN_MS = 10_000;
 const NEXT_TICK_MS = 250;
+const CAST_RETRY_MS = 30_000;
 
 /** Same rule as the server's isFinished: only the credits are left (last 5%, at least 1 min). */
 export function inCredits(position, duration) {
@@ -53,6 +53,8 @@ export function createPlayer({ onBack }) {
   let next = null;
   let countdownTimer = null;
   let countdownLeft = 0;
+  // Where to start once the current source has loaded its metadata (resume point, or position before a source switch).
+  let resumeAt = 0;
 
   // ---------- Chrome visibility ----------
 
@@ -140,6 +142,11 @@ export function createPlayer({ onBack }) {
   }
 
   // ---------- Playback ----------
+
+  video.addEventListener('loadedmetadata', () => {
+    if (resumeAt) video.currentTime = resumeAt;
+    resumeAt = 0;
+  });
 
   function togglePlay() {
     if (video.paused) video.play().catch(() => {});
@@ -304,7 +311,7 @@ export function createPlayer({ onBack }) {
   if (localStorage.getItem(VOLUME_PREF_KEY) !== null && Number.isFinite(savedVolume)) video.volume = savedVolume;
   renderVolume();
 
-  // ---------- Menus (audio & subtitles, speed) ----------
+  // ---------- Menus (audio & subtitles) ----------
 
   function closeMenus() {
     for (const menu of openMenus()) {
@@ -326,7 +333,6 @@ export function createPlayer({ onBack }) {
     renderAudioMenu();
     toggleMenu($('pbtn-subs'), $('subs-menu'));
   });
-  $('pbtn-speed').addEventListener('click', () => toggleMenu($('pbtn-speed'), $('speed-menu')));
   document.addEventListener('pointerdown', (event) => {
     closedMenuOnPress = false;
     if (event.target.closest('.popover-anchor') || !openMenus().length) return;
@@ -368,29 +374,96 @@ export function createPlayer({ onBack }) {
     $('audio-list').replaceChildren(...items);
   }
 
-  const speedOptions = $('speed-options');
-  for (const speed of SPEEDS) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.setAttribute('role', 'radio');
-    button.dataset.speed = speed;
-    button.innerHTML = '<span class="speed__dot"></span>';
-    const label = document.createElement('span');
-    label.className = 'speed__label';
-    label.textContent = speed === 1 ? '1x (normale)' : `${String(speed).replace('.', ',')}x`;
-    button.append(label);
-    button.addEventListener('click', () => {
-      video.playbackRate = speed;
-      renderSpeed();
-    });
-    speedOptions.append(button);
+  // ---------- Cast ----------
+
+  // Chrome casts through the Remote Playback API (Google Cast), Safari through AirPlay. The button
+  // only shows up when the browser supports one of them and a screen is reachable. The receiver
+  // fetches the video itself, without our cookie: clicking the button asks the server for a stream
+  // URL that carries a cast link for this movie, and the video switches to it before the picker opens.
+  const castBtn = $('pbtn-cast');
+  const airPlay = Boolean(window.WebKitPlaybackTargetAvailabilityEvent);
+  const googleCast = !airPlay && Boolean(video.remote);
+  // { movieId, url, at } of the cast link the video currently plays from.
+  let castSource = null;
+
+  const isCasting = () =>
+    airPlay ? Boolean(video.webkitCurrentPlaybackTargetIsWireless) : googleCast && video.remote.state !== 'disconnected';
+
+  function renderCast() {
+    const connected = isCasting();
+    setIcon(castBtn, connected ? 'cast-connected' : 'cast');
+    castBtn.setAttribute('aria-label', connected ? 'Diffusion en cours sur un autre écran' : 'Caster sur un autre écran');
+    castBtn.title = castBtn.getAttribute('aria-label');
+    castBtn.setAttribute('aria-pressed', String(connected));
   }
 
-  function renderSpeed() {
-    for (const button of speedOptions.children) {
-      button.setAttribute('aria-checked', String(Number(button.dataset.speed) === video.playbackRate));
-    }
+  /** Asks the server for a new cast link and plays from it, at the same position. */
+  async function useCastSource() {
+    const movieId = movie.id;
+    const current = session;
+    const res = await fetch(`/api/movies/${encodeURIComponent(movieId)}/cast`, { method: 'POST' });
+    if (!res.ok) throw new Error('cast link refused');
+    const { url } = await res.json();
+    if (current !== session) return false; // another movie was opened meanwhile
+    castSource = { movieId, url, at: Date.now() };
+    if (video.readyState >= 1) resumeAt = video.currentTime;
+    const playing = !video.paused;
+    video.src = url;
+    if (playing) video.play().catch(() => {});
+    return true;
   }
+
+  // Safari only opens the AirPlay picker during a click; if the request took too long, the link is
+  // ready and the next click opens the picker straight away.
+  const stillInClick = () => navigator.userActivation?.isActive ?? true;
+  const askToClickAgain = () => toast('Appuyez à nouveau sur l’icône pour choisir l’écran');
+
+  async function onCastClick() {
+    if (isCasting()) {
+      // Already on a screen: the picker lets the user stop or switch screens with the same link.
+      if (airPlay) video.webkitShowPlaybackTargetPicker();
+      else video.remote.prompt().catch(() => {});
+      return;
+    }
+    // A fresh link per click; the one just made is only reused for the "click again" case.
+    const ready = castSource?.movieId === movie.id && Date.now() - castSource.at < CAST_RETRY_MS;
+    if (!ready) {
+      try {
+        if (!(await useCastSource())) return;
+      } catch {
+        toast('Impossible de préparer la diffusion');
+        return;
+      }
+      if (!stillInClick()) return askToClickAgain();
+    }
+    if (airPlay) {
+      video.webkitShowPlaybackTargetPicker();
+      return;
+    }
+    video.remote.prompt().catch((error) => {
+      if (error.name === 'NotAllowedError' || error.name === 'InvalidAccessError') askToClickAgain();
+      else if (error.name !== 'AbortError') toast('Aucun écran disponible pour la diffusion');
+    });
+  }
+
+  if (airPlay) {
+    video.addEventListener('webkitplaybacktargetavailabilitychanged', (event) => {
+      castBtn.hidden = event.availability !== 'available';
+    });
+    video.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', renderCast);
+  } else if (googleCast) {
+    video.remote
+      .watchAvailability((available) => {
+        castBtn.hidden = !available;
+      })
+      // Watching can be refused (e.g. power saving): still offer the button, the picker says if no screen is found.
+      .catch(() => {
+        castBtn.hidden = false;
+      });
+    for (const name of ['connecting', 'connect', 'disconnect']) video.remote.addEventListener(name, renderCast);
+  }
+  if (airPlay || googleCast) castBtn.addEventListener('click', onCastClick);
+  renderCast();
 
   // ---------- Subtitles ----------
 
@@ -597,19 +670,15 @@ export function createPlayer({ onBack }) {
     $('scrubber-played').style.width = '0';
     $('scrubber-buffered').style.width = '0';
     $('scrubber-thumb').style.left = '0';
-    video.playbackRate = 1;
-    renderSpeed();
     renderSubsMenu();
     closeMenus();
 
+    resumeAt = startAt;
+    castSource = null;
+    // Opening another movie while on a screen: it needs its own cast link, the old one is cancelled.
+    const casting = isCasting();
     video.src = `/api/movies/${movie.id}/stream`;
-    video.addEventListener(
-      'loadedmetadata',
-      () => {
-        if (startAt) video.currentTime = startAt;
-      },
-      { once: true },
-    );
+    if (casting) useCastSource().catch(() => toast('Impossible de préparer la diffusion'));
     loadSubtitles(movie.id, session);
     root.hidden = false;
     setLoading(true);
@@ -627,6 +696,7 @@ export function createPlayer({ onBack }) {
     closeMenus();
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     video.pause();
+    castSource = null;
     video.removeAttribute('src');
     for (const el of video.querySelectorAll('track')) el.remove();
     activeTrack = null;

@@ -173,6 +173,7 @@ function formatRemaining(entry) {
 }
 
 function progressPercent(entry) {
+  if (!entry.duration) return '0%'; // a cast seen from the server only, for a movie of unknown length
   return `${Math.min(100, (entry.position / entry.duration) * 100)}%`;
 }
 
