@@ -46,7 +46,29 @@ async function showBrowse(username, isAdmin = false) {
   renderHome();
   watchConversions();
   showDiskUsage();
+  showLastUpdate();
   refreshWatching();
+}
+
+// ---------- Last update banner (public/last-update.json) ----------
+
+const DISMISSED_UPDATE_KEY = 'dismissedUpdate';
+
+async function showLastUpdate() {
+  try {
+    const res = await fetch('/last-update.json', { cache: 'no-store' });
+    const message = res.ok ? (await res.json())?.lastUpdate?.trim() : '';
+    // Once closed, a message stays hidden until last-update.json says something new.
+    if (!message || localStorage.getItem(DISMISSED_UPDATE_KEY) === message) return;
+    $('update-banner-text').textContent = message;
+    $('update-banner').hidden = false;
+    $('update-banner-close').onclick = () => {
+      localStorage.setItem(DISMISSED_UPDATE_KEY, message);
+      $('update-banner').hidden = true;
+    };
+  } catch {
+    // No banner is fine.
+  }
 }
 
 async function showDiskUsage() {

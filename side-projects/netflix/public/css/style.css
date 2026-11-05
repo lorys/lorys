@@ -120,6 +120,44 @@ button { font: inherit; cursor: pointer; }
   font-size: 0.95rem;
 }
 
+/* ---------- Last update banner ---------- */
+
+.update-banner {
+  position: absolute;
+  top: 4.6rem;
+  left: 4%;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: calc(92% - 2rem);
+  margin: 0;
+  padding: 0.3rem 0.4rem 0.3rem 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  color: var(--fg);
+  font-size: 0.8rem;
+  animation: update-banner-in 0.4s ease-out;
+}
+.update-banner[hidden] { display: none; }
+/* Home only: hidden while search results replace the hero. */
+#browse-view:has(#search-results:not([hidden])) .update-banner { display: none; }
+.update-banner__dot { flex: none; width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--accent); }
+.update-banner__close {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.7rem;
+  padding: 0.2rem 0.35rem;
+  cursor: pointer;
+}
+.update-banner__close:hover { color: white; }
+@keyframes update-banner-in { from { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .update-banner { animation: none; } }
+
 /* ---------- Hero ---------- */
 
 .hero {
