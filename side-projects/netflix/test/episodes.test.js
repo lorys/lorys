@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { episodeLabel, nextEpisode, showEpisodes, showResumeTarget } from '../public/js/episodes.js';
-import { inCredits } from '../public/js/player.js';
+import { nextCountdown } from '../public/js/player.js';
 
 const ep = (id, season, episode, extra = {}) => ({
   id,
@@ -71,9 +71,12 @@ test('episodeLabel', () => {
   assert.equal(episodeLabel(ep('x', 3, 1, { episodeEnd: 2 })), 'S3:É1-2');
 });
 
-test('inCredits matches the server rule (last 5%, at least the last minute)', () => {
-  assert.equal(inCredits(100, 2800), false);
-  assert.equal(inCredits(2700, 2800), true); // last 100 s of a 47 min episode
-  assert.equal(inCredits(6800, 7200), false);
-  assert.equal(inCredits(6850, 7200), true); // last 5% of a 2 h movie
+test('nextCountdown: shown from 90%, next episode at 99%', () => {
+  assert.equal(nextCountdown(890, 1000), null);
+  assert.equal(nextCountdown(900, 1000), 0);
+  assert.ok(Math.abs(nextCountdown(945, 1000) - 0.5) < 1e-9);
+  assert.equal(nextCountdown(990, 1000), 1);
+  assert.equal(nextCountdown(1000, 1000), 1);
+  assert.equal(nextCountdown(10, NaN), null);
+  assert.equal(nextCountdown(0, 0), null);
 });

@@ -9,13 +9,20 @@ const PAUSED_INFO_MS = 6000;
 const SEEK_STEP = 10;
 const SUBS_PREF_KEY = 'cineflix.subtitles';
 const VOLUME_PREF_KEY = 'cineflix.volume';
-const NEXT_COUNTDOWN_MS = 10_000;
-const NEXT_TICK_MS = 250;
+// "Épisode suivant" shows up at 90% of the episode; the next one starts at 99%.
+const NEXT_SHOW_AT = 0.9;
+const NEXT_PLAY_AT = 0.99;
 const CAST_RETRY_MS = 30_000;
 
-/** Same rule as the server's isFinished: only the credits are left (last 5%, at least 1 min). */
-export function inCredits(position, duration) {
-  return duration - position <= Math.max(60, duration * 0.05);
+/**
+ * Progress of the "Épisode suivant" countdown: null before 90% of the video, then from 0 (at 90%)
+ * to 1 (at 99%, when the next episode starts).
+ */
+export function nextCountdown(position, duration) {
+  if (!Number.isFinite(duration) || !duration) return null;
+  const ratio = position / duration;
+  if (ratio < NEXT_SHOW_AT) return null;
+  return Math.min(1, (ratio - NEXT_SHOW_AT) / (NEXT_PLAY_AT - NEXT_SHOW_AT));
 }
 
 export function formatTime(seconds) {
@@ -49,10 +56,8 @@ export function createPlayer({ onBack }) {
   let activeTrack = null;
   // Bumped on every open/close so late subtitle-list responses for a previous movie are ignored.
   let session = 0;
-  // { label, onPlay } of the episode offered over the credits, and its countdown.
+  // { label, onPlay } of the episode offered at the end of this one.
   let next = null;
-  let countdownTimer = null;
-  let countdownLeft = 0;
   // Where to start once the current source has loaded its metadata (resume point, or position before a source switch).
   let resumeAt = 0;
 
@@ -564,8 +569,6 @@ export function createPlayer({ onBack }) {
   const nextBtn = $('player-next');
 
   function hideNext() {
-    clearInterval(countdownTimer);
-    countdownTimer = null;
     nextBtn.hidden = true;
     $('player-next-bar').style.width = '0';
   }
@@ -577,23 +580,21 @@ export function createPlayer({ onBack }) {
     target?.onPlay();
   }
 
-  // Shown over the credits; seeking back before them hides it and resets the countdown.
+  // Shown from 90% of the video; its bar follows the playback (so it waits while paused) and the
+  // next episode starts at 99%. Seeking back before 90% hides it.
   function renderNext() {
-    const { currentTime, duration } = video;
-    if (!next || !Number.isFinite(duration) || !duration || !inCredits(currentTime, duration)) {
+    const countdown = next ? nextCountdown(video.currentTime, video.duration) : null;
+    if (countdown === null) {
       hideNext();
       return;
     }
-    if (countdownTimer) return;
+    if (countdown >= 1) {
+      playNext();
+      return;
+    }
     $('player-next-label').textContent = next.label;
     nextBtn.hidden = false;
-    countdownLeft = NEXT_COUNTDOWN_MS;
-    countdownTimer = setInterval(() => {
-      if (video.paused) return; // the countdown waits while the video is paused
-      countdownLeft -= NEXT_TICK_MS;
-      $('player-next-bar').style.width = `${(1 - countdownLeft / NEXT_COUNTDOWN_MS) * 100}%`;
-      if (countdownLeft <= 0) playNext();
-    }, NEXT_TICK_MS);
+    $('player-next-bar').style.width = `${countdown * 100}%`;
   }
 
   nextBtn.addEventListener('click', playNext);

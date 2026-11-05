@@ -884,7 +884,7 @@ body.has-watching .footer { padding-bottom: calc(2rem + 6.5rem + env(safe-area-i
 }
 .player__toast--on { opacity: 1; }
 
-/* "Épisode suivant": over the credits, fills up during the countdown. */
+/* "Épisode suivant": shown from 90% of the episode, fills up until the next one starts at 99%. */
 .player__next {
   position: absolute;
   right: clamp(1rem, 3vw, 2.5rem);
