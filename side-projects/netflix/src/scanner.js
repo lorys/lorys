@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { parseEpisodeFilename, parseMovieFilename, showKey, VIDEO_EXTENSIONS } from './filename.js';
 import { createTmdbClient } from './tmdb.js';
+import { log } from './log.js';
 
 const CONCURRENCY = 4;
 
@@ -236,7 +237,7 @@ async function fetchSeasons(client, show, seasons, logger) {
     try {
       show.seasons[season] = toSeasonInfo(await client.seasonDetails(show.tmdbId, season));
     } catch (err) {
-      logger.error?.(`TMDB lookup failed for "${show.title}" season ${season}: ${err.message}`);
+      logger.error?.({ show: show.title, season, error: err.message }, 'TMDB season lookup failed');
     }
   }
 }
@@ -246,7 +247,7 @@ async function fetchSeasons(client, show, seasons, logger) {
  * wrong one. The name is kept, so later scans search it too. Returns `{ item }`, `{ missing: true }`
  * when no movie has this id, or `{ noMatch: true }` when TMDB finds nothing.
  */
-export async function rematchMovie(config, id, name, { tmdb, logger = console } = {}) {
+export async function rematchMovie(config, id, name, { tmdb, logger = log } = {}) {
   if (!(await readMoviesInfos(config.moviesInfosPath)).movies.some((m) => m.id === id && m.kind !== 'episode')) return { missing: true };
   const client = tmdb ?? createTmdbClient(config.tmdbApiKey);
   const hit = await client.searchMovie(name);
@@ -261,13 +262,13 @@ export async function rematchMovie(config, id, name, { tmdb, logger = console } 
     const item = { ...toMovieInfo({ ...movie, parsed: movie.parsed ?? parseMovieFilename(movie.file) }, details), searchName: name };
     infos.movies[index] = item;
     await writeJson(config.moviesInfosPath, infos);
-    logger.info?.(`"${movie.file}" matched by name "${name}" to "${item.title}"`);
+    logger.info?.({ file: movie.file, searchedName: name, match: item.title }, 'Movie matched on TMDB by name');
     return { item };
   });
 }
 
 /** Same as rematchMovie for a whole show: the show and all its episodes get the new TMDB data. */
-export async function rematchShow(config, key, name, { tmdb, logger = console } = {}) {
+export async function rematchShow(config, key, name, { tmdb, logger = log } = {}) {
   const before = await readMoviesInfos(config.moviesInfosPath);
   if (!before.shows[key]) return { missing: true };
   const client = tmdb ?? createTmdbClient(config.tmdbApiKey);
@@ -282,7 +283,7 @@ export async function rematchShow(config, key, name, { tmdb, logger = console } 
     infos.shows[key] = show;
     infos.movies = infos.movies.map((m) => (m.kind === 'episode' && m.showKey === key ? toEpisodeInfo(m, show) : m));
     await writeJson(config.moviesInfosPath, infos);
-    logger.info?.(`Show "${key}" matched by name "${name}" to "${show.title}"`);
+    logger.info?.({ show: key, searchedName: name, match: show.title }, 'Show matched on TMDB by name');
     return { item: show };
   });
 }
@@ -330,7 +331,7 @@ async function runPool(items, worker) {
  * Only new files (and previously unmatched ones) hit TMDB unless `force` is set.
  * Episodes ("Show.S01E02…") are grouped by show: one TMDB lookup per show and per season.
  */
-export async function scanMovies(config, { force = false, logger = console, tmdb } = {}) {
+export async function scanMovies(config, { force = false, logger = log, tmdb } = {}) {
   const previous = await readMoviesInfos(config.moviesInfosPath);
   const addedBy = await readAddedBy(config);
   const known = new Map(previous.movies.map((m) => [m.file, m]));
@@ -383,13 +384,13 @@ export async function scanMovies(config, { force = false, logger = console, tmdb
       } else {
         result.push(unmatchedInfo(base));
         stats.unmatched++;
-        logger.warn?.(`No TMDB match for "${base.file}" (searched "${base.parsed.title}"${base.parsed.year ? ` ${base.parsed.year}` : ''})`);
+        logger.warn?.({ file: base.file, searched: base.parsed.title, year: base.parsed.year ?? null }, 'No TMDB match for a movie');
       }
     } catch (err) {
       // Keep the previous entry (or a placeholder) so the movie stays visible; it is retried next scan.
       result.push(known.get(base.file) ?? unmatchedInfo(base));
       stats.errors++;
-      logger.error?.(`TMDB lookup failed for "${base.file}": ${err.message}`);
+      logger.error?.({ file: base.file, error: err.message }, 'TMDB movie lookup failed');
     }
   }
 
@@ -404,7 +405,7 @@ export async function scanMovies(config, { force = false, logger = console, tmdb
         const hit = searchName ? await client.searchTv(searchName) : await client.searchTv(showTitle, year);
         show = hit ? toShowInfo(key, await client.tvDetails(hit.id)) : unmatchedShow(key, showTitle);
         if (searchName) show.searchName = searchName;
-        if (!hit) logger.warn?.(`No TMDB match for the show "${searchName ?? showTitle}"${year && !searchName ? ` ${year}` : ''}`);
+        if (!hit) logger.warn?.({ searched: searchName ?? showTitle, year: (!searchName && year) || null }, 'No TMDB match for a show');
       }
     } catch (err) {
       // Keep the previous entries (or placeholders) so the episodes stay visible; retried next scan.
@@ -414,7 +415,7 @@ export async function scanMovies(config, { force = false, logger = console, tmdb
         result.push(old?.kind === 'episode' ? old : toEpisodeInfo(base, shows[key]));
       }
       stats.errors += episodes.length;
-      logger.error?.(`TMDB lookup failed for the show "${showTitle}": ${err.message}`);
+      logger.error?.({ show: showTitle, error: err.message }, 'TMDB show lookup failed');
       return;
     }
     if (show.matched) {
@@ -428,7 +429,7 @@ export async function scanMovies(config, { force = false, logger = console, tmdb
         } catch (err) {
           // Its episodes stay unmatched ("Épisode N") and the season is fetched again next scan.
           stats.errors++;
-          logger.error?.(`TMDB lookup failed for "${show.title}" season ${season}: ${err.message}`);
+          logger.error?.({ show: show.title, season, error: err.message }, 'TMDB season lookup failed');
         }
       }
     }

@@ -38,6 +38,7 @@ if (config.convertOnStart) scanned.then(enqueueLibrary);
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, async () => {
+    app.log.info({ signal }, 'Server stopping');
     watcher.close();
     await app.close(); // also stops a running conversion
     process.exit(0);

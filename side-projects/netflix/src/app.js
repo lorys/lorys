@@ -4,7 +4,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline, Transform } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import Fastify from 'fastify';
+import Fastify, { LogController } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import { authenticate, createAccountsStore } from './accounts.js';
@@ -16,6 +16,8 @@ import { createSubtitlesService } from './subtitles.js';
 import { COMMENT_MAX_LENGTH, createCommentsStore } from './comments.js';
 import { addAMovie } from './addAMovie.js';
 import { addASerie } from './addASerie.js';
+import { log, silentLog } from './log.js';
+import { requestLogDetails } from './requestLog.js';
 
 // Movies found by addAMovie() and seasons found by addASerie() wait this long for the user to pick one and confirm the download.
 const PENDING_MOVIE_TTL_MS = 15 * 60_000;
@@ -98,8 +100,11 @@ export function parseRange(header, size) {
   return { start, end };
 }
 
+// `logger`: a pino-style logger, true for the console one (src/log.js), false for none.
 export function buildApp(config, { logger = true, conversions, tmdb, loginIntervalMs = LOGIN_INTERVAL_MS } = {}) {
-  const app = Fastify({ logger });
+  const loggerInstance = logger === true ? log : logger || silentLog;
+  // Fastify's own request logs are replaced by ours (see "Request logs" below).
+  const app = Fastify({ loggerInstance, logController: new LogController({ disableRequestLogging: true }) });
   const getInfos = createInfosCache(config.moviesInfosPath);
   const accounts = createAccountsStore(config.accountsPath, config.accountsSecret);
   const downloads = createDownloadManager(config.moviesPath, {
@@ -113,8 +118,33 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
   app.addHook('onClose', () => downloads.close());
   app.addHook('onClose', () => conversions.close());
 
-  app.addHook('onSend', async (request, reply) => {
+  app.addHook('onSend', async (request, reply, payload) => {
     reply.headers(SECURITY_HEADERS);
+    if (reply.statusCode >= 400 && typeof payload === 'string') {
+      try {
+        request.failure = JSON.parse(payload).error ?? payload;
+      } catch {
+        request.failure = payload;
+      }
+    }
+  });
+
+  // ---------- Request logs: one per request, once its response is over ----------
+
+  // Fastify's own crash log goes away with its request logs: crashes keep their stack here.
+  app.addHook('onError', async (request, reply, error) => {
+    if ((error.statusCode ?? 500) >= 500) app.log.error(error, 'Request crashed');
+  });
+
+  // On 'close' rather than onResponse: also fires when the client hangs up mid-response
+  // (players often drop a video request to seek or once their buffer is full).
+  app.addHook('onRequest', async (request, reply) => {
+    reply.raw.once('close', () => {
+      const findMovie = async (id) => (await getInfos()).movies.find((m) => m.id === id);
+      requestLogDetails(request, reply, { findMovie })
+        .then(({ sentence, data }) => (reply.statusCode >= 500 ? app.log.error : app.log.info)(data, sentence))
+        .catch((err) => app.log.error(err, 'Request log failed'));
+    });
   });
 
   app.register(fastifyCookie);
@@ -124,6 +154,9 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
   app.decorateRequest('session', null);
   app.decorateRequest('user', null);
   app.decorateRequest('viaCast', false);
+  // Why a cast link was refused, and the error message sent back: shown in the request log.
+  app.decorateRequest('castRefused', null);
+  app.decorateRequest('failure', null);
   app.addHook('onRequest', async (request) => {
     request.session = readSessionToken(request.cookies[SESSION_COOKIE], config.sessionSecret);
   });
@@ -142,10 +175,16 @@ export function buildApp(config, { logger = true, conversions, tmdb, loginInterv
 
   // The stream accepts a cast link (`?cast=`, for the TV that has no cookie) or the session cookie.
   const requireStreamAccess = async (request, reply) => {
-    const cast = readCastToken(request.query.cast, config.sessionSecret);
-    if (cast && cast.movieId === request.params.id && castNonces.get(cast.username) === cast.nonce) {
-      const account = (await accounts.read()).find((a) => a.username === cast.username);
-      if (account && (account.sessionVersion ?? 0) === cast.version) {
+    if (request.query.cast !== undefined) {
+      const cast = readCastToken(request.query.cast, config.sessionSecret);
+      const account = cast && (await accounts.read()).find((a) => a.username === cast.username);
+      if (!cast) request.castRefused = 'invalid or expired cast link';
+      else if (cast.movieId !== request.params.id) request.castRefused = 'cast link made for another movie';
+      else if (!castNonces.has(cast.username)) request.castRefused = 'cast link forgotten (server restarted)';
+      else if (castNonces.get(cast.username) !== cast.nonce) request.castRefused = 'replaced by a newer cast link';
+      else if (!account) request.castRefused = 'account deleted';
+      else if ((account.sessionVersion ?? 0) !== cast.version) request.castRefused = 'sessions revoked (logout or password change)';
+      else {
         request.user = account.username;
         request.viaCast = true;
         return;

@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import { parseEpisodeFilename } from './filename.js';
 import { listVideoFiles, readMoviesInfos, runExclusive, scanMovies } from './scanner.js';
+import { log } from './log.js';
 
 const DEBOUNCE_MS = 5_000;
 const DEFAULT_POLL_MS = 60_000;
@@ -19,7 +20,7 @@ export async function needsScan(config) {
   return infos.movies.some((m) => (m.kind === 'episode') !== Boolean(parseEpisodeFilename(m.file)));
 }
 
-export function watchMovies(config, { logger = console, pollMs = DEFAULT_POLL_MS, scan = scanMovies, onScanned, onChecked } = {}) {
+export function watchMovies(config, { logger = log, pollMs = DEFAULT_POLL_MS, scan = scanMovies, onScanned, onChecked } = {}) {
   let running = null;
   let rerun = false;
   let debounce = null;
@@ -37,14 +38,14 @@ export function watchMovies(config, { logger = console, pollMs = DEFAULT_POLL_MS
           const added = await runExclusive(async () => {
             if (!(await needsScan(config))) return [];
             const before = new Set((await readMoviesInfos(config.moviesInfosPath)).movies.map((m) => m.file));
-            logger.info('Movie library changed, scanning TMDB…');
+            logger.info('Library changed, TMDB scan started');
             const stats = await scan(config, { logger });
-            logger.info(stats, 'Movie scan finished');
+            logger.info(stats, 'TMDB scan finished');
             return (await readMoviesInfos(config.moviesInfosPath)).movies.filter((m) => !before.has(m.file));
           });
           if (added.length) onScanned?.(added);
         } catch (err) {
-          logger.error(err, 'Movie scan failed');
+          logger.error(err, 'TMDB scan failed');
         }
       } while (rerun);
       onChecked?.();
@@ -65,9 +66,9 @@ export function watchMovies(config, { logger = console, pollMs = DEFAULT_POLL_MS
   let watcher = null;
   try {
     watcher = fs.watch(config.moviesPath, { recursive: true }, schedule);
-    watcher.on('error', (err) => logger.warn(`File watcher error, relying on polling: ${err.message}`));
+    watcher.on('error', (err) => logger.warn({ error: err.message }, 'File watcher broke, polling instead'));
   } catch (err) {
-    logger.warn(`Cannot watch ${config.moviesPath} (${err.message}), relying on polling`);
+    logger.warn({ folder: config.moviesPath, error: err.message }, 'Folder not watchable, polling instead');
   }
   // Polling also covers network mounts where fs events aren't delivered.
   const poll = setInterval(check, pollMs);

@@ -7,6 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { renameMovieEntry, runExclusive } from './scanner.js';
 import { describeSubtitle } from './subtitles.js';
+import { log } from './log.js';
 
 const run = promisify(execFile);
 
@@ -178,7 +179,7 @@ const statKey = (stat) => `${stat.size}-${stat.mtimeMs}`;
  * convert.json: files known to play in browsers — converted ones (`converted: true`) and those that
  * already did (`converted: false`) — with the size and mtime they had, so they're never checked twice.
  */
-export function createConversionTracking(filePath, { logger = console } = {}) {
+export function createConversionTracking(filePath, { logger = log } = {}) {
   let loading = null;
   let saving = Promise.resolve();
 
@@ -186,11 +187,11 @@ export function createConversionTracking(filePath, { logger = console } = {}) {
     loading ??= fs.readFile(filePath, 'utf8').then(
       (text) => JSON.parse(text).files ?? {},
       (err) => {
-        if (err.code !== 'ENOENT') logger.warn(`Cannot read ${filePath} (${err.message}), starting from scratch`);
+        if (err.code !== 'ENOENT') logger.warn({ file: filePath, error: err.message }, 'Conversion tracking unreadable, starting from scratch');
         return {};
       },
     ).catch((err) => {
-      logger.warn(`Cannot parse ${filePath} (${err.message}), starting from scratch`);
+      logger.warn({ file: filePath, error: err.message }, 'Conversion tracking corrupted, starting from scratch');
       return {};
     });
     return loading;
@@ -213,7 +214,7 @@ export function createConversionTracking(filePath, { logger = console } = {}) {
           await fs.writeFile(tmp, JSON.stringify({ files }, null, 2) + '\n');
           await fs.rename(tmp, filePath);
         })
-        .catch((err) => logger.warn(`Cannot write ${filePath}: ${err.message}`));
+        .catch((err) => logger.warn({ file: filePath, error: err.message }, 'Conversion tracking not saved'));
       return saving;
     },
   };
@@ -226,7 +227,7 @@ export function createConversionTracking(filePath, { logger = console } = {}) {
 export function createConversionManager(
   config,
   {
-    logger = console,
+    logger = log,
     stableMs = 5_000,
     probe = ffprobe,
     trackingPath = path.join(path.dirname(config.moviesInfosPath), 'convert.json'),
@@ -260,15 +261,15 @@ export function createConversionManager(
       try {
         await Promise.all([run('ffmpeg', ['-version']), run('ffprobe', ['-version'])]);
       } catch {
-        logger.warn('ffmpeg/ffprobe not found: movies browsers can’t play won’t be converted');
+        logger.warn('ffmpeg/ffprobe missing, conversions disabled');
         return null;
       }
       const { stdout } = await run('ffmpeg', ['-hide_banner', '-filters'], { maxBuffer: 4 * 1024 * 1024 });
       const zscale = /\szscale\s/.test(stdout);
-      if (!zscale) logger.warn('ffmpeg has no zscale filter: HDR movies will be converted without tone mapping');
+      if (!zscale) logger.warn('ffmpeg has no zscale, HDR movies converted without tone mapping');
       const vaapi = (await vaapiWorks(config.vaapiDevice)) ? config.vaapiDevice : null;
-      if (vaapi) logger.info(`Video is encoded with Intel Quick Sync (VAAPI, ${vaapi})`);
-      else if (config.vaapiDevice) logger.info(`VAAPI unavailable on ${config.vaapiDevice}: video is encoded on the CPU (libx264)`);
+      if (vaapi) logger.info({ device: vaapi }, 'Video encoding on Intel Quick Sync');
+      else if (config.vaapiDevice) logger.info({ device: config.vaapiDevice }, 'Quick Sync unavailable, video encoding on the CPU');
       return { zscale, vaapi };
     })();
     return tools;
@@ -323,7 +324,7 @@ export function createConversionManager(
     } catch (err) {
       if (abort.signal.aborted || handled(movie, key)) return;
       states.set(movie.id, { id: movie.id, file: movie.file, key, status: 'failed', percent: 0, error: 'Fichier illisible' });
-      logger.warn(`Cannot probe "${movie.file}": ${err.message}`);
+      logger.warn({ file: movie.file, error: err.message }, 'Movie unreadable by ffprobe');
       return;
     }
     // Another enqueue of the same movie may have won while we were waiting or probing.
@@ -361,7 +362,7 @@ export function createConversionManager(
           queue.push(state.id);
         } else {
           Object.assign(state, { status: 'failed', percent: 0, error: err.message });
-          logger.warn(`Conversion failed for "${state.file}": ${err.message}`);
+          logger.warn({ file: state.file, error: err.message }, 'Conversion failed');
         }
       } finally {
         await Promise.all(job.temps.map((t) => fs.rm(t, { force: true })));
@@ -407,7 +408,10 @@ export function createConversionManager(
     if (!plan) return;
     state.key = statKey(source);
     state.status = 'converting';
-    logger.info(`Converting "${state.file}" (video: ${plan.video}, audio: ${plan.audio.map((a) => a.action).join('/') || 'none'})`);
+    logger.info(
+      { file: state.file, video: plan.video, hdr: plan.hdr, downscale: plan.downscale, audio: plan.audio.map((a) => a.action), subtitles: plan.subtitles.length },
+      'Conversion started',
+    );
 
     // Final names are only picked when swapping (step 4): files can appear during a long encode.
     const tempBase = path.join(moviesPath, plan.outputFile);
@@ -430,7 +434,7 @@ export function createConversionManager(
     } catch (err) {
       // Something Quick Sync can't take (odd size, profile…): the CPU can.
       if (!vaapi || plan.video === 'copy' || abort.signal.aborted) throw err;
-      logger.warn(`VAAPI encoding failed for "${state.file}" (${err.message}), retrying on the CPU`);
+      logger.warn({ file: state.file, error: err.message }, 'Quick Sync encoding failed, retrying on the CPU');
       state.percent = 0;
       await encode(null);
     }
@@ -454,7 +458,7 @@ export function createConversionManager(
         const name = subtitleSidecarName(output, s, taken);
         // Never write outside the movie's folder, whatever the track metadata says.
         if (!path.resolve(moviesPath, name).startsWith(outputDir + path.sep)) {
-          logger.warn(`Skipping subtitle track ${s.index} of "${state.file}": unsafe file name "${name}"`);
+          logger.warn({ file: state.file, track: s.index, name }, 'Subtitle track skipped, unsafe file name');
           continue;
         }
         taken.add(name);
@@ -474,7 +478,7 @@ export function createConversionManager(
 
     // 5. Never check this file again (unless it changes).
     await tracking.record(outputFile, await fs.stat(outputPath), { converted: true, source: state.file });
-    logger.info(`Converted "${state.file}" → "${outputFile}"`);
+    logger.info({ from: state.file, to: outputFile }, 'Conversion finished');
   }
 
   const view = ({ status, percent, error }) => ({ status, percent, error });
@@ -508,10 +512,10 @@ export function createConversionManager(
           await fs.rm(file, { force: true });
           removed++;
         } catch (err) {
-          logger.warn(`Cannot remove leftover conversion file ${file}: ${err.message}`); // e.g. read-only library
+          logger.warn({ file, error: err.message }, 'Leftover conversion file not removed'); // e.g. read-only library
         }
       }
-      if (removed) logger.info(`Removed ${removed} leftover conversion file(s)`);
+      if (removed) logger.info({ removed }, 'Leftover conversion files removed');
       return removed;
     },
 

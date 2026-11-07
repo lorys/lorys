@@ -7,6 +7,7 @@ import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { VIDEO_EXTENSIONS } from './filename.js';
+import { log } from './log.js';
 
 const PART_SUFFIX = '.part';
 // Finished, failed and cancelled downloads stay listed this long.
@@ -93,7 +94,7 @@ export function pickFilename({ name: preferred, disposition, url, contentType })
 export function createDownloadManager(
   moviesPath,
   {
-    logger = console,
+    logger = log,
     maxRunning = MAX_RUNNING,
     maxSize = MAX_SIZE,
     minFreeStart = MIN_FREE_START,
@@ -182,12 +183,12 @@ export function createDownloadManager(
         try {
           await recordAddedBy(download.filename, download.addedBy);
         } catch (err) {
-          logger.warn(`Could not record who added ${download.filename}: ${err.message}`);
+          logger.warn({ file: download.filename, error: err.message }, 'Could not record who added a download');
         }
       }
       await fsp.rename(partPath, finalPath);
       download.status = 'done';
-      logger.info(`Download finished: ${download.filename}`);
+      logger.info({ file: download.filename, addedBy: download.addedBy ?? null }, 'Download finished');
     } catch (err) {
       if (partPath) await fsp.rm(partPath, { force: true });
       if (download.controller.signal.aborted) {
@@ -195,7 +196,7 @@ export function createDownloadManager(
       } else {
         download.status = 'error';
         download.error = err.message;
-        logger.warn(`Download failed (${download.url}): ${err.message}`);
+        logger.warn({ file: download.filename, url: download.url, error: err.message }, 'Download failed');
       }
     } finally {
       reserved.delete(download.filename);

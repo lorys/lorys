@@ -1,3 +1,5 @@
+import { log } from './log.js';
+
 const API_BASE = 'https://api.themoviedb.org/3';
 const LANGUAGE = 'fr-FR';
 
@@ -53,7 +55,7 @@ export function createTmdbClient(apiKey, { fetchImpl = fetch } = {}) {
       let data = await get('/search/movie', { query: normalizeMovieFilename(title), year: year ?? undefined, include_adult: false });
       // The year in filenames is sometimes off by one (festival vs release date): retry without it.
       if (!data.results?.length && year) data = await get('/search/movie', { query: normalizeMovieFilename(title), include_adult: false });
-      console.log("Search movie", data);
+      log.info({ title, year: year ?? null, results: data.results?.length ?? 0, match: data.results?.[0]?.title ?? null }, 'TMDB movie search');
       return data.results?.[0] ?? null;
     },
     movieDetails(id) {
