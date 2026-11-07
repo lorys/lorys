@@ -423,6 +423,23 @@ export function createPlayer({ onBack }) {
   const stillInClick = () => navigator.userActivation?.isActive ?? true;
   const askToClickAgain = () => toast('Appuyez à nouveau sur l’icône pour choisir l’écran');
 
+  /** Resolves true once the current source has its metadata, false on error or after 10 s. */
+  function metadataLoaded() {
+    return new Promise((resolve) => {
+      const done = (ok) => {
+        clearTimeout(timer);
+        video.removeEventListener('loadedmetadata', onLoaded);
+        video.removeEventListener('error', onError);
+        resolve(ok);
+      };
+      const onLoaded = () => done(true);
+      const onError = () => done(false);
+      const timer = setTimeout(() => done(false), 10_000);
+      video.addEventListener('loadedmetadata', onLoaded);
+      video.addEventListener('error', onError);
+    });
+  }
+
   async function onCastClick() {
     if (isCasting()) {
       // Already on a screen: the picker lets the user stop or switch screens with the same link.
@@ -441,7 +458,15 @@ export function createPlayer({ onBack }) {
       }
       if (!stillInClick()) return askToClickAgain();
     }
+    // The cast link is the source now: remote playback can be turned back on.
+    resumeCasting();
     if (airPlay) {
+      // iOS judges the video from what it has loaded: right after the source swap there is nothing
+      // yet, and the picker would say "video unsupported". Wait for the metadata first.
+      if (video.readyState < 1) {
+        if (!(await metadataLoaded())) return toast('Impossible de préparer la diffusion');
+        if (!stillInClick()) return askToClickAgain();
+      }
       video.webkitShowPlaybackTargetPicker();
       return;
     }
@@ -451,12 +476,7 @@ export function createPlayer({ onBack }) {
     });
   }
 
-  if (airPlay) {
-    video.addEventListener('webkitplaybacktargetavailabilitychanged', (event) => {
-      castBtn.hidden = event.availability !== 'available';
-    });
-    video.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', renderCast);
-  } else if (googleCast) {
+  function watchCastAvailability() {
     video.remote
       .watchAvailability((available) => {
         castBtn.hidden = !available;
@@ -465,6 +485,37 @@ export function createPlayer({ onBack }) {
       .catch(() => {
         castBtn.hidden = false;
       });
+  }
+
+  // A cast link only opens its own movie: before another one is opened (or the player closed), the
+  // cast is ended, otherwise the TV would be sent a video it can't load. Neither API has a
+  // "disconnect" call; turning remote playback off ends the session (Google Cast) and brings AirPlay
+  // back to the phone. It stays off until the next cast click, once that movie's cast link is the
+  // source: iOS keeps the Apple TV selected, and would otherwise send it the cookie-only stream.
+  let castStopped = false;
+
+  function stopCasting() {
+    if (!isCasting()) return;
+    castStopped = true;
+    video.disableRemotePlayback = true;
+  }
+
+  function resumeCasting() {
+    if (!castStopped) return;
+    castStopped = false;
+    video.disableRemotePlayback = false;
+    // Turning it off cancelled the availability watch (Remote Playback API): start it again.
+    if (googleCast) watchCastAvailability();
+  }
+
+  if (airPlay) {
+    video.addEventListener('webkitplaybacktargetavailabilitychanged', (event) => {
+      // While remote playback is off, Safari reports no screen: keep the button to cast again.
+      if (!castStopped) castBtn.hidden = event.availability !== 'available';
+    });
+    video.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', renderCast);
+  } else if (googleCast) {
+    watchCastAvailability();
     for (const name of ['connecting', 'connect', 'disconnect']) video.remote.addEventListener(name, renderCast);
   }
   if (airPlay || googleCast) castBtn.addEventListener('click', onCastClick);
@@ -676,10 +727,13 @@ export function createPlayer({ onBack }) {
 
     resumeAt = startAt;
     castSource = null;
-    // Opening another movie while on a screen: it needs its own cast link, the old one is cancelled.
-    const casting = isCasting();
+    // The cast link is tied to the previous movie: the new one starts on this device, and the user
+    // casts it again with the button.
+    if (isCasting()) {
+      stopCasting();
+      toast('Diffusion arrêtée : appuyez sur l’icône pour caster ce titre');
+    }
     video.src = `/api/movies/${movie.id}/stream`;
-    if (casting) useCastSource().catch(() => toast('Impossible de préparer la diffusion'));
     loadSubtitles(movie.id, session);
     root.hidden = false;
     setLoading(true);
@@ -697,6 +751,7 @@ export function createPlayer({ onBack }) {
     closeMenus();
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     video.pause();
+    stopCasting();
     castSource = null;
     video.removeAttribute('src');
     for (const el of video.querySelectorAll('track')) el.remove();
